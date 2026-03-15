@@ -128,6 +128,7 @@ impl MetaKeyspace {
     }
 
     pub(crate) fn remove_keyspace(&self, name: &str) -> crate::Result<()> {
+        #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
         let mut lock = self.keyspaces.write().expect("lock is poisoned");
 
         let Some(keyspace) = lock.get(name) else {
@@ -195,6 +196,7 @@ impl MetaKeyspace {
     }
 
     pub(crate) fn keyspace_exists(&self, name: &str) -> bool {
+        #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
         self.keyspaces
             .read()
             .expect("lock is poisoned")
