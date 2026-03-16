@@ -27,9 +27,9 @@ __internal_whitebox = []
 byteorder = { package = "byteorder-lite", version = "0.1.0" }
 byteview = "~0.10.1"
 # Fork with SequenceNumberGenerator trait (structured-world/lsm-tree#10).
-# Pinned to branch=main during alpha — will switch to crates.io version
+# Pinned to a specific commit during alpha — will switch to crates.io version
 # once fjall-rs/lsm-tree#265 is released.
-lsm-tree = { git = "https://github.com/structured-world/lsm-tree.git", branch = "main", default-features = false, features = [] }
+lsm-tree = { git = "https://github.com/structured-world/lsm-tree.git", rev = "25ffae70", default-features = false, features = [] }
 log = "0.4.27"
 tempfile = "3.20.0"
 dashmap = "6.1.0"
