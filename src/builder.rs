@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{db_config::CompactionFilterAssigner, tx::single_writer::Openable, Config};
-use lsm_tree::{Cache, CompressionType, DescriptorTable};
+use lsm_tree::{Cache, CompressionType, DescriptorTable, SharedSequenceNumberGenerator};
 use std::{marker::PhantomData, path::Path, sync::Arc};
 
 /// Database builder
@@ -186,6 +186,43 @@ impl<O: Openable> Builder<O> {
     #[must_use]
     pub fn with_compaction_filter_factories(mut self, f: CompactionFilterAssigner) -> Self {
         self.inner.compaction_filter_factory_assigner = Some(f);
+        self
+    }
+
+    /// Sets a custom sequence number generator for write operations.
+    ///
+    /// Takes `SharedSequenceNumberGenerator` (`Arc<dyn SequenceNumberGenerator>`)
+    /// directly because the generator must be shared across all keyspaces and the
+    /// internal storage layer. Accepting a generic would add a type parameter to
+    /// `Builder` that propagates through `Config` and `Database`.
+    ///
+    /// By default, the database uses [`crate::SequenceNumberCounter`],
+    /// a simple atomic counter. Use this to plug in a custom generator,
+    /// e.g., a Hybrid Logical Clock (HLC) for distributed databases.
+    ///
+    /// The generator is shared across all keyspaces and is used for
+    /// write sequencing (assigning seqnos to new writes). The MVCC
+    /// visibility watermark is managed internally by the snapshot tracker.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fjall::Database;
+    /// use fjall::{SharedSequenceNumberGenerator, SequenceNumberCounter};
+    /// use std::sync::Arc;
+    ///
+    /// # let folder = tempfile::tempdir()?;
+    /// let generator: SharedSequenceNumberGenerator =
+    ///     Arc::new(SequenceNumberCounter::default());
+    ///
+    /// let db = Database::builder(&folder)
+    ///     .seqno_generator(generator)
+    ///     .open()?;
+    /// # Ok::<(), fjall::Error>(())
+    /// ```
+    #[must_use]
+    pub fn seqno_generator(mut self, generator: SharedSequenceNumberGenerator) -> Self {
+        self.inner.seqno_generator = Some(generator);
         self
     }
 }

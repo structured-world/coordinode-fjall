@@ -338,7 +338,7 @@ impl Keyspace {
 
         std::fs::create_dir_all(&base_folder)?;
 
-        let base_config = lsm_tree::Config::new(
+        let base_config = lsm_tree::Config::new_with_generators(
             base_folder,
             db.supervisor.seqno.clone(),
             db.supervisor.snapshot_tracker.get_ref(),
