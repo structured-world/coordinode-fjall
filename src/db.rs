@@ -23,9 +23,7 @@ use crate::{
     write_buffer_manager::WriteBufferManager,
     HashMap, Keyspace, KeyspaceCreateOptions,
 };
-use lsm_tree::{
-    AbstractTree, SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator,
-};
+use lsm_tree::{AbstractTree, SequenceNumberCounter, SharedSequenceNumberGenerator};
 use std::{
     fs::remove_dir_all,
     path::Path,
@@ -584,6 +582,26 @@ impl Database {
         self.supervisor.snapshot_tracker.get()
     }
 
+    /// Creates the write seqno generator and a separate MVCC visibility watermark.
+    ///
+    /// The write generator comes from the user-supplied config (or falls back to
+    /// the default [`SequenceNumberCounter`]). The visibility watermark is always
+    /// a fresh counter — it tracks "up to which seqno are writes visible", not
+    /// "generate the next seqno".
+    fn make_seqno_generators(
+        config: &Config,
+    ) -> (SharedSequenceNumberGenerator, SharedSequenceNumberGenerator) {
+        let seqno: SharedSequenceNumberGenerator = config
+            .seqno_generator
+            .clone()
+            .unwrap_or_else(|| Arc::new(SequenceNumberCounter::default()));
+
+        let visible_seqno: SharedSequenceNumberGenerator =
+            Arc::new(SequenceNumberCounter::default());
+
+        (seqno, visible_seqno)
+    }
+
     fn check_version<P: AsRef<Path>>(path: P) -> crate::Result<()> {
         let bytes = std::fs::read(path.as_ref().join(VERSION_MARKER))?;
 
@@ -633,17 +651,7 @@ impl Database {
 
         let journal_manager = JournalManager::new();
 
-        let seqno: SharedSequenceNumberGenerator = config
-            .seqno_generator
-            .clone()
-            .unwrap_or_else(|| Arc::new(SequenceNumberCounter::default()));
-
-        // NOTE: visible_seqno is intentionally a separate default counter, not the custom
-        // generator. It serves as the MVCC visibility watermark, updated via publish()/set()
-        // from the write seqno values — it tracks "up to which seqno are writes visible",
-        // not "generate the next seqno".
-        let visible_seqno: SharedSequenceNumberGenerator =
-            Arc::new(SequenceNumberCounter::default());
+        let (seqno, visible_seqno) = Self::make_seqno_generators(&config);
 
         let keyspaces = Arc::new(RwLock::new(Keyspaces::with_capacity_and_hasher(
             10,
@@ -888,17 +896,7 @@ impl Database {
         fsync_directory(&keyspaces_folder_path)?;
         fsync_directory(&config.path)?;
 
-        let seqno: SharedSequenceNumberGenerator = config
-            .seqno_generator
-            .clone()
-            .unwrap_or_else(|| Arc::new(SequenceNumberCounter::default()));
-
-        // NOTE: visible_seqno is intentionally a separate default counter, not the custom
-        // generator. It serves as the MVCC visibility watermark, updated via publish()/set()
-        // from the write seqno values — it tracks "up to which seqno are writes visible",
-        // not "generate the next seqno".
-        let visible_seqno: SharedSequenceNumberGenerator =
-            Arc::new(SequenceNumberCounter::default());
+        let (seqno, visible_seqno) = Self::make_seqno_generators(&config);
 
         let keyspaces = Arc::new(RwLock::new(Keyspaces::with_capacity_and_hasher(
             10,

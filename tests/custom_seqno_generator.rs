@@ -27,6 +27,8 @@ impl TrackingGenerator {
 }
 
 impl SequenceNumberGenerator for TrackingGenerator {
+    // NOTE: fetch_add returns the *previous* value — this matches SequenceNumberCounter's
+    // semantics where next() returns the current seqno then advances the counter.
     fn next(&self) -> SeqNo {
         self.next_count.fetch_add(1, Ordering::Relaxed);
         self.inner.fetch_add(1, Ordering::AcqRel)
@@ -59,12 +61,17 @@ fn custom_generator_basic() -> fjall::Result<()> {
 
     let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
 
+    // Capture baseline after keyspace creation — metadata writes may have
+    // already advanced the generator before our inserts.
+    let baseline = generator.next_count.load(Ordering::Relaxed);
+
     tree.insert("a", "hello")?;
     tree.insert("b", "world")?;
 
+    let after_inserts = generator.next_count.load(Ordering::Relaxed);
     assert!(
-        generator.next_count.load(Ordering::Relaxed) >= 2,
-        "Custom generator should be called for write operations",
+        after_inserts - baseline >= 2,
+        "Custom generator should be called at least twice for two inserts (baseline={baseline}, after={after_inserts})",
     );
 
     assert_eq!(b"hello", &*tree.get("a")?.unwrap());

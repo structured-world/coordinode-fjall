@@ -191,6 +191,11 @@ impl<O: Openable> Builder<O> {
 
     /// Sets a custom sequence number generator for write operations.
     ///
+    /// Takes `SharedSequenceNumberGenerator` (`Arc<dyn SequenceNumberGenerator>`)
+    /// directly because the generator must be shared across all keyspaces and the
+    /// internal storage layer. Accepting a generic would add a type parameter to
+    /// `Builder` that propagates through `Config` and `Database`.
+    ///
     /// By default, the database uses [`SequenceNumberCounter`](lsm_tree::SequenceNumberCounter),
     /// a simple atomic counter. Use this to plug in a custom generator,
     /// e.g., a Hybrid Logical Clock (HLC) for distributed databases.

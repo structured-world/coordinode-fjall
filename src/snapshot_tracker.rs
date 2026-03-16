@@ -4,7 +4,7 @@
 
 use crate::{snapshot_nonce::SnapshotNonce, SeqNo};
 use dashmap::DashMap;
-use lsm_tree::{SequenceNumberGenerator, SharedSequenceNumberGenerator};
+use lsm_tree::SharedSequenceNumberGenerator;
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
 /// Keeps track of open snapshots

@@ -20,7 +20,7 @@ use crate::{
     worker_pool::WorkerMessage,
     Database, Guard, Iter,
 };
-use lsm_tree::{AbstractTree, AnyTree, SeqNo, SequenceNumberGenerator, UserKey, UserValue};
+use lsm_tree::{AbstractTree, AnyTree, SeqNo, UserKey, UserValue};
 use options::CreateOptions;
 use std::{
     ops::RangeBounds,

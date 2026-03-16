@@ -4,9 +4,7 @@
 
 use crate::{db::Keyspaces, keyspace::InternalKeyspaceId, Keyspace};
 use byteview::StrView;
-use lsm_tree::{
-    AbstractTree, AnyTree, SeqNo, SequenceNumberGenerator, SharedSequenceNumberGenerator, UserValue,
-};
+use lsm_tree::{AbstractTree, AnyTree, SeqNo, SharedSequenceNumberGenerator, UserValue};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 pub fn encode_config_key(

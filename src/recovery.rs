@@ -13,8 +13,8 @@ use crate::{
     meta_keyspace::MetaKeyspace,
     Database, HashMap, Keyspace,
 };
-use lsm_tree::{AbstractTree, SequenceNumberGenerator};
-use std::{path::PathBuf, sync::Arc};
+use lsm_tree::AbstractTree;
+use std::path::PathBuf;
 
 /// Recovers keyspaces
 pub fn recover_keyspaces(db: &Database, meta_keyspace: &MetaKeyspace) -> crate::Result<()> {
