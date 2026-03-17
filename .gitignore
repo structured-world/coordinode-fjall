@@ -22,3 +22,5 @@ mutants.out
 /old_*
 
 .directory
+.forge/
+.claude/
