@@ -266,25 +266,24 @@ fn noop_journal_create_and_write() -> crate::Result<()> {
         assert_eq!(tree.len()?, 2);
 
         // No .jnl files created (scan recursively to cover nested dirs)
-        fn count_jnl_files(dir: &std::path::Path) -> usize {
+        fn count_jnl_files(dir: &std::path::Path) -> std::io::Result<usize> {
             let mut count = 0;
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        count += count_jnl_files(&path);
-                    } else if path
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
-                    {
-                        count += 1;
-                    }
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    count += count_jnl_files(&path)?;
+                } else if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
+                {
+                    count += 1;
                 }
             }
-            count
+            Ok(count)
         }
         assert_eq!(
-            count_jnl_files(folder.path()),
+            count_jnl_files(folder.path())?,
             0,
             "noop journal should not create .jnl files"
         );

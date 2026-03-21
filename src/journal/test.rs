@@ -12,7 +12,7 @@ fn must_get_reader(journal: &Journal) -> crate::Result<batch_reader::JournalBatc
     journal
         .get_reader()?
         .ok_or(crate::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::Unsupported,
             "expected file-based journal with a reader, got noop journal (no path)",
         )))
 }

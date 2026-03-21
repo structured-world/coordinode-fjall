@@ -644,6 +644,7 @@ impl Database {
 
             // Warn about leftover .jnl files from a prior file-based run to prevent
             // silent mode switches or accumulating unused disk space.
+            // Journal files live at config.path (DB root), not in a subdirectory.
             if let Ok(entries) = std::fs::read_dir(&config.path) {
                 for entry in entries.flatten() {
                     if entry.file_type().is_ok_and(|ft| ft.is_file())
