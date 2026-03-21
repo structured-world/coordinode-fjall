@@ -8,8 +8,9 @@
 //! SSI implementation correctly prevents all serialization anomalies.
 //! See: <http://ithare.com/testing-database-transaction-isolation/>
 //!
-//! Each test exercises a specific anomaly class and asserts that SSI detects
-//! and rejects it via `Conflict`.
+//! All reads that participate in conflict detection use `*_for_update()` methods.
+//! Snapshot reads (`Readable::get`) are non-serializable and intentionally skip
+//! conflict tracking — see `read_only_snapshot_no_conflict` for that case.
 
 use fjall::{KeyspaceCreateOptions, OptimisticTxDatabase, OptimisticTxKeyspace, Readable};
 use tempfile::TempDir;
@@ -45,14 +46,14 @@ fn lost_update_prevented_by_ssi() -> Result {
     // Seed initial value
     env.ks.insert("balance", 100u64.to_be_bytes())?;
 
-    // T1: read balance
+    // T1: read balance (for_update → tracked for conflict detection)
     let mut tx1 = env.db.write_tx()?;
-    let val1 = tx1.get(env.ks.inner(), "balance")?.unwrap();
+    let val1 = tx1.get_for_update(env.ks.inner(), "balance")?.unwrap();
     let balance1 = u64::from_be_bytes(val1.as_ref().try_into()?);
 
     // T2: read same balance
     let mut tx2 = env.db.write_tx()?;
-    let val2 = tx2.get(env.ks.inner(), "balance")?.unwrap();
+    let val2 = tx2.get_for_update(env.ks.inner(), "balance")?.unwrap();
     let balance2 = u64::from_be_bytes(val2.as_ref().try_into()?);
 
     assert_eq!(balance1, 100);
@@ -83,26 +84,25 @@ fn write_skew_detected() -> Result {
     env.ks.insert("alice_oncall", b"true")?;
     env.ks.insert("bob_oncall", b"true")?;
 
-    // T1: check Bob is on-call, then remove Alice
+    // T1: check Bob is on-call (for_update), then remove Alice
     let mut tx1 = env.db.write_tx()?;
-    let bob = tx1.get(env.ks.inner(), "bob_oncall")?.unwrap();
+    let bob = tx1.get_for_update(env.ks.inner(), "bob_oncall")?.unwrap();
     assert_eq!(bob.as_ref(), b"true");
     tx1.insert(env.ks.inner(), "alice_oncall", b"false");
 
-    // T2: check Alice is on-call, then remove Bob
+    // T2: check Alice is on-call (for_update), then remove Bob
     let mut tx2 = env.db.write_tx()?;
-    let alice = tx2.get(env.ks.inner(), "alice_oncall")?.unwrap();
+    let alice = tx2.get_for_update(env.ks.inner(), "alice_oncall")?.unwrap();
     assert_eq!(alice.as_ref(), b"true");
     tx2.insert(env.ks.inner(), "bob_oncall", b"false");
 
-    // First commit succeeds; second must conflict under SSI
+    // Under SSI, this write skew pattern must not allow both commits to succeed.
+    // The API does not guarantee which transaction aborts, only that at least one does.
     let r1 = tx1.commit()?;
-    assert!(r1.is_ok(), "first commit should succeed");
-
     let r2 = tx2.commit()?;
     assert!(
-        r2.is_err(),
-        "second transaction must conflict to prevent write skew"
+        r1.is_err() || r2.is_err(),
+        "at least one transaction must conflict to prevent write skew"
     );
     Ok(())
 }
@@ -119,9 +119,11 @@ fn phantom_read_in_range_prevented() -> Result {
     env.ks.insert("item_m", b"2")?;
     env.ks.insert("item_z", b"3")?;
 
-    // T1: scan range to count items
+    // T1: scan range to count items (for_update → range tracked)
     let mut tx1 = env.db.write_tx()?;
-    let count: usize = tx1.range(env.ks.inner(), "item_a"..="item_z").count();
+    let count: usize = tx1
+        .range_for_update(env.ks.inner(), "item_a"..="item_z")
+        .count();
     assert_eq!(count, 3);
 
     // T2: insert a phantom into that range and commit
@@ -148,9 +150,9 @@ fn phantom_read_in_prefix_prevented() -> Result {
     env.ks.insert("user:1", b"alice")?;
     env.ks.insert("user:2", b"bob")?;
 
-    // T1: prefix scan
+    // T1: prefix scan (for_update → prefix range tracked)
     let mut tx1 = env.db.write_tx()?;
-    let count: usize = tx1.prefix(env.ks.inner(), "user:").count();
+    let count: usize = tx1.prefix_for_update(env.ks.inner(), "user:").count();
     assert_eq!(count, 2);
 
     // T2: insert new key with same prefix and commit
@@ -168,15 +170,16 @@ fn phantom_read_in_prefix_prevented() -> Result {
     Ok(())
 }
 
-/// A read-only transaction (no writes) should commit successfully even if
-/// concurrent writers modify the same keys, because it has an empty write set.
+/// A snapshot read (non-serializable) should not cause conflicts even if
+/// concurrent writers modify the same keys, because snapshot reads are
+/// intentionally excluded from conflict tracking.
 #[test]
-fn read_only_tx_no_conflict() -> Result {
+fn read_only_snapshot_no_conflict() -> Result {
     let env = setup()?;
 
     env.ks.insert("key", b"original")?;
 
-    // T1: read-only
+    // T1: snapshot read (Readable::get — NOT tracked for conflicts)
     let tx1 = env.db.write_tx()?;
     let val = tx1.get(env.ks.inner(), "key")?.unwrap();
     assert_eq!(val.as_ref(), b"original");
@@ -186,9 +189,12 @@ fn read_only_tx_no_conflict() -> Result {
     tx2.insert(env.ks.inner(), "key", b"modified");
     tx2.commit()??;
 
-    // T1: commit (no writes) → should succeed
+    // T1: commit (no writes, snapshot read only) → should succeed
     let result = tx1.commit()?;
-    assert!(result.is_ok(), "read-only transaction should not conflict");
+    assert!(
+        result.is_ok(),
+        "snapshot read-only transaction should not conflict"
+    );
     Ok(())
 }
 
@@ -200,7 +206,7 @@ fn concurrent_update_fetch_conflict() -> Result {
 
     env.ks.insert("counter", 0u64.to_be_bytes())?;
 
-    // T1: increment counter via update_fetch
+    // T1: increment counter via update_fetch (implicitly for_update)
     let mut tx1 = env.db.write_tx()?;
     tx1.update_fetch(env.ks.inner(), "counter", |prev| {
         let val = prev
@@ -256,9 +262,9 @@ fn disjoint_key_writes_no_conflict() -> Result {
     Ok(())
 }
 
-/// T1 reads from keyspace A, T2 writes to the same key in keyspace A and commits.
-/// T1 then writes to keyspace B and tries to commit — must conflict because
-/// its read set (keyspace A) was invalidated.
+/// T1 reads from keyspace A (for_update), T2 writes to the same key in
+/// keyspace A and commits. T1 then writes to keyspace B and tries to
+/// commit — must conflict because its read set (keyspace A) was invalidated.
 #[test]
 fn cross_keyspace_conflict() -> Result {
     let env = setup()?;
@@ -266,9 +272,9 @@ fn cross_keyspace_conflict() -> Result {
 
     env.ks.insert("shared_key", b"original")?;
 
-    // T1: read from keyspace A
+    // T1: read from keyspace A (for_update → tracked)
     let mut tx1 = env.db.write_tx()?;
-    tx1.get(env.ks.inner(), "shared_key")?
+    tx1.get_for_update(env.ks.inner(), "shared_key")?
         .expect("shared_key should exist for T1 read dependency");
 
     // T2: write to same key in keyspace A and commit
@@ -295,9 +301,9 @@ fn long_running_tx_gc_interaction() -> Result {
 
     env.ks.insert("watched_key", b"initial")?;
 
-    // T1: start a long-running transaction, read the watched key
+    // T1: start a long-running transaction, read the watched key (for_update)
     let mut tx1 = env.db.write_tx()?;
-    let val = tx1.get(env.ks.inner(), "watched_key")?.unwrap();
+    let val = tx1.get_for_update(env.ks.inner(), "watched_key")?.unwrap();
     assert_eq!(val.as_ref(), b"initial");
 
     // Run 1,000 short transactions — enough to exercise oracle GC
