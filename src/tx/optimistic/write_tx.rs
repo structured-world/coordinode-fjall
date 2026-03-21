@@ -54,19 +54,21 @@ pub struct WriteTransaction {
     oracle: Arc<Oracle>,
 }
 
+/// Snapshot (non-serializable) reads.
+///
+/// These reads provide MVCC snapshot isolation with read-your-own-writes,
+/// but are NOT tracked for conflict detection. Use these for read-only
+/// traversals that don't need serializability guarantees.
+///
+/// For read-modify-write patterns where serializability is required,
+/// use the `*_for_update()` methods instead.
 impl Readable for WriteTransaction {
     fn get<K: AsRef<[u8]>>(
         &self,
         keyspace: impl AsRef<Keyspace>,
         key: K,
     ) -> crate::Result<Option<UserValue>> {
-        let keyspace = keyspace.as_ref();
-
-        let res = self.inner.get(keyspace, key.as_ref())?;
-
-        self.cm.mark_read(keyspace.id, key.as_ref().into());
-
-        Ok(res)
+        self.inner.get(keyspace, key)
     }
 
     fn contains_key<K: AsRef<[u8]>>(
@@ -74,13 +76,7 @@ impl Readable for WriteTransaction {
         keyspace: impl AsRef<Keyspace>,
         key: K,
     ) -> crate::Result<bool> {
-        let keyspace = keyspace.as_ref();
-
-        let contains = self.inner.contains_key(keyspace, key.as_ref())?;
-
-        self.cm.mark_read(keyspace.id, key.as_ref().into());
-
-        Ok(contains)
+        self.inner.contains_key(keyspace, key)
     }
 
     fn first_key_value(&self, keyspace: impl AsRef<Keyspace>) -> Option<Guard> {
@@ -96,12 +92,10 @@ impl Readable for WriteTransaction {
         keyspace: impl AsRef<Keyspace>,
         key: K,
     ) -> crate::Result<Option<u32>> {
-        let keyspace = keyspace.as_ref();
         self.inner.size_of(keyspace, key)
     }
 
     fn iter(&self, keyspace: impl AsRef<Keyspace>) -> Iter {
-        self.cm.mark_range(keyspace.as_ref().id, RangeFull);
         self.inner.iter(keyspace)
     }
 
@@ -110,16 +104,11 @@ impl Readable for WriteTransaction {
         keyspace: impl AsRef<Keyspace>,
         range: R,
     ) -> Iter {
-        let start: Bound<Slice> = range.start_bound().map(|k| k.as_ref().into());
-        let end: Bound<Slice> = range.end_bound().map(|k| k.as_ref().into());
-
-        self.cm.mark_range(keyspace.as_ref().id, (start, end));
-
         self.inner.range(keyspace, range)
     }
 
     fn prefix<K: AsRef<[u8]>>(&self, keyspace: impl AsRef<Keyspace>, prefix: K) -> Iter {
-        self.range(keyspace, lsm_tree::range::prefix_to_range(prefix.as_ref()))
+        self.inner.prefix(keyspace, prefix)
     }
 }
 
@@ -137,6 +126,115 @@ impl WriteTransaction {
     pub fn durability(mut self, mode: Option<PersistMode>) -> Self {
         self.inner = self.inner.durability(mode);
         self
+    }
+
+    /// Retrieves an item with serializable conflict tracking.
+    ///
+    /// Unlike [`Readable::get`], this method marks the key as read in the
+    /// conflict manager. If another transaction writes to this key before
+    /// this transaction commits, a conflict will be detected.
+    ///
+    /// Use this for read-modify-write patterns where you need serializability.
+    /// For read-only traversals, use [`Readable::get`] instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fjall::{OptimisticTxDatabase, KeyspaceCreateOptions, Readable};
+    /// #
+    /// # let folder = tempfile::tempdir()?;
+    /// # let db = OptimisticTxDatabase::builder(folder).open()?;
+    /// # let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
+    /// tree.insert("a", "abc")?;
+    ///
+    /// let mut tx = db.write_tx()?;
+    /// let val = tx.get_for_update(&tree, "a")?;
+    /// // This read is tracked: concurrent writes to "a" will cause a conflict
+    /// tx.commit()?;
+    /// #
+    /// # Ok::<(), fjall::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn get_for_update<K: AsRef<[u8]>>(
+        &self,
+        keyspace: impl AsRef<Keyspace>,
+        key: K,
+    ) -> crate::Result<Option<UserValue>> {
+        let keyspace = keyspace.as_ref();
+
+        let res = self.inner.get(keyspace, key.as_ref())?;
+
+        self.cm.mark_read(keyspace.id, key.as_ref().into());
+
+        Ok(res)
+    }
+
+    /// Checks key existence with serializable conflict tracking.
+    ///
+    /// Unlike [`Readable::contains_key`], this method marks the key as read
+    /// in the conflict manager for conflict detection.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn contains_key_for_update<K: AsRef<[u8]>>(
+        &self,
+        keyspace: impl AsRef<Keyspace>,
+        key: K,
+    ) -> crate::Result<bool> {
+        let keyspace = keyspace.as_ref();
+
+        let contains = self.inner.contains_key(keyspace, key.as_ref())?;
+
+        self.cm.mark_read(keyspace.id, key.as_ref().into());
+
+        Ok(contains)
+    }
+
+    /// Iterates over the entire keyspace with serializable conflict tracking.
+    ///
+    /// Unlike [`Readable::iter`], this method marks the full keyspace as read
+    /// in the conflict manager. Any concurrent write to this keyspace will
+    /// cause a conflict.
+    #[must_use]
+    pub fn iter_for_update(&self, keyspace: impl AsRef<Keyspace>) -> Iter {
+        self.cm.mark_range(keyspace.as_ref().id, RangeFull);
+        self.inner.iter(keyspace)
+    }
+
+    /// Iterates over a range with serializable conflict tracking.
+    ///
+    /// Unlike [`Readable::range`], this method marks the range as read
+    /// in the conflict manager. Any concurrent write within this range
+    /// will cause a conflict (phantom protection).
+    #[must_use]
+    pub fn range_for_update<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        keyspace: impl AsRef<Keyspace>,
+        range: R,
+    ) -> Iter {
+        let start: Bound<Slice> = range.start_bound().map(|k| k.as_ref().into());
+        let end: Bound<Slice> = range.end_bound().map(|k| k.as_ref().into());
+
+        self.cm.mark_range(keyspace.as_ref().id, (start, end));
+
+        self.inner.range(keyspace, range)
+    }
+
+    /// Iterates over a prefix with serializable conflict tracking.
+    ///
+    /// Unlike [`Readable::prefix`], this method marks the prefix range as read
+    /// in the conflict manager for conflict detection.
+    #[must_use]
+    pub fn prefix_for_update<K: AsRef<[u8]>>(
+        &self,
+        keyspace: impl AsRef<Keyspace>,
+        prefix: K,
+    ) -> Iter {
+        self.range_for_update(keyspace, lsm_tree::range::prefix_to_range(prefix.as_ref()))
     }
 
     /// Removes an item and returns its value if it existed.
@@ -508,7 +606,7 @@ mod tests {
 
         let mut tx1 = env.db.write_tx()?;
         let val = tx1
-            .range(&env.tree, "a".."b")
+            .range_for_update(&env.tree, "a".."b")
             .map(|kv| {
                 let v = kv.value().unwrap();
 
@@ -522,7 +620,7 @@ mod tests {
 
         let mut tx2 = env.db.write_tx()?;
         let val = tx2
-            .range(&env.tree, "b".."c")
+            .range_for_update(&env.tree, "b".."c")
             .map(|kv| {
                 let v = kv.value().unwrap();
 
@@ -569,7 +667,7 @@ mod tests {
 
         let mut tx1 = env.db.write_tx()?;
         let val = tx1
-            .range(&env.tree, "a".."b")
+            .range_for_update(&env.tree, "a".."b")
             .map(|kv| {
                 let v = kv.value().unwrap();
 
@@ -583,7 +681,7 @@ mod tests {
 
         let mut tx2 = env.db.write_tx()?;
         let val = tx2
-            .range(&env.tree, "b".."c")
+            .range_for_update(&env.tree, "b".."c")
             .map(|kv| {
                 let v = kv.value().unwrap();
 
@@ -629,7 +727,7 @@ mod tests {
         tx1.commit()??;
         assert!(env.tree.contains_key("hello")?);
 
-        assert_eq!(tx2.get(env.tree.inner(), "hello")?, None);
+        assert_eq!(tx2.get_for_update(env.tree.inner(), "hello")?, None);
 
         tx2.insert(env.tree.inner(), "hello", "world2");
         assert!(matches!(tx2.commit()?, Err(Conflict)));
@@ -637,7 +735,7 @@ mod tests {
         let mut tx1 = env.db.write_tx()?;
         let mut tx2 = env.db.write_tx()?;
 
-        tx1.iter(&env.tree).next();
+        tx1.iter_for_update(&env.tree).next();
         tx2.insert(env.tree.inner(), "hello", "world2");
 
         tx1.insert(env.tree.inner(), "hello2", "world1");
@@ -683,12 +781,12 @@ mod tests {
         let mut tx2 = env.db.write_tx()?;
 
         {
-            let x = tx1.get(env.tree.inner(), "x")?.unwrap();
+            let x = tx1.get_for_update(env.tree.inner(), "x")?.unwrap();
             tx1.insert(env.tree.inner(), "y", x);
         }
 
         {
-            let y = tx2.get(env.tree.inner(), "y")?.unwrap();
+            let y = tx2.get_for_update(env.tree.inner(), "y")?.unwrap();
             tx2.insert(env.tree.inner(), "x", y);
         }
 
@@ -732,11 +830,17 @@ mod tests {
 
         t1.insert(env.tree.inner(), [1u8], [101u8]);
 
-        assert_eq!(t2.get(env.tree.inner(), [1u8])?, Some([10u8].into()));
+        assert_eq!(
+            t2.get_for_update(env.tree.inner(), [1u8])?,
+            Some([10u8].into())
+        );
 
         t1.rollback();
 
-        assert_eq!(t2.get(env.tree.inner(), [1u8])?, Some([10u8].into()));
+        assert_eq!(
+            t2.get_for_update(env.tree.inner(), [1u8])?,
+            Some([10u8].into())
+        );
 
         t2.commit()??;
 
@@ -751,7 +855,7 @@ mod tests {
 
         let mut t1 = env.db.write_tx()?;
         {
-            let mut iter = t1.iter(&env.tree);
+            let mut iter = t1.iter_for_update(&env.tree);
             assert_eq!(
                 iter.next().unwrap().into_inner()?,
                 ([1u8].into(), [10u8].into()),
@@ -828,13 +932,13 @@ mod tests {
     }
 
     #[test]
-    fn tx_ssi_range() -> Result<(), Box<dyn std::error::Error>> {
+    fn tx_ssi_range_for_update() -> Result<(), Box<dyn std::error::Error>> {
         let env = setup()?;
 
         let mut t1 = env.db.write_tx()?;
         let mut t2 = env.db.write_tx()?;
 
-        _ = t1.range(&env.tree, "h"..="hello");
+        _ = t1.range_for_update(&env.tree, "h"..="hello");
         t1.insert(env.tree.inner(), "foo", "bar");
 
         // insert a key INSIDE the range read by t1
@@ -846,7 +950,7 @@ mod tests {
         let mut t1 = env.db.write_tx()?;
         let mut t2 = env.db.write_tx()?;
 
-        _ = t1.range(&env.tree, "h"..="hello");
+        _ = t1.range_for_update(&env.tree, "h"..="hello");
         t1.insert(env.tree.inner(), "foo", "bar");
 
         // insert a key OUTSIDE the range read by t1
@@ -859,13 +963,13 @@ mod tests {
     }
 
     #[test]
-    fn tx_ssi_prefix() -> Result<(), Box<dyn std::error::Error>> {
+    fn tx_ssi_prefix_for_update() -> Result<(), Box<dyn std::error::Error>> {
         let env = setup()?;
 
         let mut t1 = env.db.write_tx()?;
         let mut t2 = env.db.write_tx()?;
 
-        _ = t1.prefix(&env.tree, "hello");
+        _ = t1.prefix_for_update(&env.tree, "hello");
         t1.insert(env.tree.inner(), "foo", "bar");
 
         // insert a key MATCHING the prefix read by t1
@@ -877,7 +981,7 @@ mod tests {
         let mut t1 = env.db.write_tx()?;
         let mut t2 = env.db.write_tx()?;
 
-        _ = t1.prefix(&env.tree, "hello");
+        _ = t1.prefix_for_update(&env.tree, "hello");
         t1.insert(env.tree.inner(), "foo", "bar");
 
         // insert a key NOT MATCHING the range read by t1
@@ -885,6 +989,76 @@ mod tests {
 
         t2.commit()??;
         t1.commit()??;
+
+        Ok(())
+    }
+
+    #[test]
+    fn tx_snapshot_read_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let env = setup()?;
+
+        env.tree.insert("a", "1")?;
+
+        // Snapshot reads (get, range, prefix, iter) should NOT cause conflicts
+        let mut tx1 = env.db.write_tx()?;
+        let mut tx2 = env.db.write_tx()?;
+
+        // tx1 reads "a" with snapshot read (no conflict tracking)
+        assert_eq!(tx1.get(env.tree.inner(), "a")?, Some("1".into()));
+        tx1.insert(env.tree.inner(), "b", "2");
+
+        // tx2 writes to "a" (which tx1 read)
+        tx2.insert(env.tree.inner(), "a", "modified");
+        tx2.commit()??;
+
+        // tx1 should NOT conflict because get() is a snapshot read
+        tx1.commit()??;
+
+        Ok(())
+    }
+
+    #[test]
+    fn tx_snapshot_range_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let env = setup()?;
+
+        env.tree.insert("a", "1")?;
+        env.tree.insert("b", "2")?;
+
+        let mut tx1 = env.db.write_tx()?;
+        let mut tx2 = env.db.write_tx()?;
+
+        // tx1 does a snapshot range read
+        let count = tx1.range(&env.tree, "a"..="b").count();
+        assert_eq!(count, 2);
+        tx1.insert(env.tree.inner(), "c", "3");
+
+        // tx2 writes inside the range tx1 read
+        tx2.insert(env.tree.inner(), "a", "modified");
+        tx2.commit()??;
+
+        // tx1 should NOT conflict because range() is a snapshot read
+        tx1.commit()??;
+
+        Ok(())
+    }
+
+    #[test]
+    fn tx_for_update_causes_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let env = setup()?;
+
+        env.tree.insert("a", "1")?;
+
+        // get_for_update should cause conflicts
+        let mut tx1 = env.db.write_tx()?;
+        let mut tx2 = env.db.write_tx()?;
+
+        assert_eq!(tx1.get_for_update(env.tree.inner(), "a")?, Some("1".into()));
+        tx1.insert(env.tree.inner(), "b", "2");
+
+        tx2.insert(env.tree.inner(), "a", "modified");
+        tx2.commit()??;
+
+        assert!(matches!(tx1.commit()?, Err(Conflict)));
 
         Ok(())
     }
