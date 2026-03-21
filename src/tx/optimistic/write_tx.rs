@@ -171,7 +171,7 @@ impl WriteTransaction {
 
         let res = self.inner.get(keyspace, key)?;
 
-        self.cm.mark_read(keyspace.id, key.into());
+        self.mark_key_read(keyspace, key);
 
         Ok(res)
     }
@@ -194,9 +194,13 @@ impl WriteTransaction {
 
         let contains = self.inner.contains_key(keyspace, key)?;
 
-        self.cm.mark_read(keyspace.id, key.into());
+        self.mark_key_read(keyspace, key);
 
         Ok(contains)
+    }
+
+    fn mark_key_read(&self, keyspace: &Keyspace, key: &[u8]) {
+        self.cm.mark_read(keyspace.id, key.into());
     }
 
     /// Iterates over the entire keyspace with serializable conflict tracking.
@@ -221,10 +225,12 @@ impl WriteTransaction {
         keyspace: impl AsRef<Keyspace>,
         range: R,
     ) -> Iter {
+        let keyspace = keyspace.as_ref();
+
         let start: Bound<Slice> = range.start_bound().map(|k| k.as_ref().into());
         let end: Bound<Slice> = range.end_bound().map(|k| k.as_ref().into());
 
-        self.cm.mark_range(keyspace.as_ref().id, (start, end));
+        self.cm.mark_range(keyspace.id, (start, end));
 
         self.inner.range(keyspace, range)
     }
