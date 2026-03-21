@@ -210,7 +210,8 @@ impl WriteTransaction {
     /// cause a conflict.
     #[must_use]
     pub fn iter_for_update(&self, keyspace: impl AsRef<Keyspace>) -> Iter {
-        self.cm.mark_range(keyspace.as_ref().id, RangeFull);
+        let keyspace = keyspace.as_ref();
+        self.cm.mark_range(keyspace.id, RangeFull);
         self.inner.iter(keyspace)
     }
 
