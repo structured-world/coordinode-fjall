@@ -118,7 +118,7 @@ fn tx_conflict_rate(c: &mut Criterion) {
     // then commits them in order — the second should conflict under SSI.
     group.throughput(Throughput::Elements(100));
 
-    group.bench_function("hot_key_range", |b| {
+    group.bench_function("hot_key", |b| {
         b.iter_batched(
             || {
                 let tmpdir = tempfile::tempdir().unwrap();
@@ -202,8 +202,10 @@ fn recovery_time(c: &mut Criterion) {
                     let ks = db
                         .keyspace("bench", KeyspaceCreateOptions::default)
                         .unwrap();
-                    // Verify at least one key to prevent dead-code elimination
-                    assert!(ks.get(0usize.to_be_bytes()).unwrap().is_some());
+                    // Consume the read result to prevent dead-code elimination
+                    let value = ks.get(0usize.to_be_bytes()).unwrap();
+                    debug_assert!(value.is_some());
+                    criterion::black_box(value);
                 });
             },
         );
