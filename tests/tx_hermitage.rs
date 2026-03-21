@@ -279,7 +279,7 @@ fn cross_keyspace_conflict() {
     );
 }
 
-/// Open a long-running transaction (T1), then commit 10,000 short transactions.
+/// Open a long-running transaction (T1), then commit 1,000 short transactions.
 /// T1 must still get correct conflict detection — oracle GC must not discard
 /// conflict information needed for T1's window.
 #[test]

@@ -33,7 +33,7 @@ fn keyspace_write(c: &mut Criterion) {
                             ks.insert(i.to_be_bytes(), &value).unwrap();
                         }
                     },
-                    criterion::BatchSize::SmallInput,
+                    criterion::BatchSize::PerIteration,
                 );
             },
         );
@@ -66,7 +66,7 @@ fn partition_switch(c: &mut Criterion) {
                     ks.insert(i.to_be_bytes(), b"value").unwrap();
                 }
             },
-            criterion::BatchSize::SmallInput,
+            criterion::BatchSize::PerIteration,
         );
     });
 
@@ -101,7 +101,7 @@ fn tx_commit(c: &mut Criterion) {
                             tx.commit().unwrap().unwrap();
                         }
                     },
-                    criterion::BatchSize::SmallInput,
+                    criterion::BatchSize::PerIteration,
                 );
             },
         );
@@ -113,7 +113,9 @@ fn tx_commit(c: &mut Criterion) {
 fn tx_conflict_rate(c: &mut Criterion) {
     let mut group = c.benchmark_group("tx_conflict_rate");
 
-    // Measure how many transactions conflict when all target the same small key range
+    // Measure conflict rate with overlapping transactions on a hot key.
+    // Each iteration opens two transactions that both read+write the same key,
+    // then commits them in order — the second should conflict under SSI.
     group.throughput(Throughput::Elements(100));
 
     group.bench_function("hot_key_range", |b| {
@@ -124,29 +126,41 @@ fn tx_conflict_rate(c: &mut Criterion) {
                 let ks = db
                     .keyspace("bench", KeyspaceCreateOptions::default)
                     .unwrap();
-                // Seed 10 keys
-                for i in 0u64..10 {
-                    ks.insert(i.to_be_bytes(), b"init").unwrap();
-                }
+                // Seed key 0
+                ks.insert(0u64.to_be_bytes(), b"init").unwrap();
                 (tmpdir, db, ks)
             },
             |(_tmpdir, db, ks)| {
                 let mut conflicts = 0u64;
                 for _ in 0..100 {
-                    let mut tx = db.write_tx().unwrap();
-                    // Read key 0, write key 0 (creates read+write conflict with concurrent txns)
-                    let _ = tx.get(ks.inner(), 0u64.to_be_bytes());
-                    tx.insert(ks.inner(), 0u64.to_be_bytes(), b"updated");
-                    match tx.commit() {
+                    // Create two overlapping transactions on the same hot key
+                    let mut tx1 = db.write_tx().unwrap();
+                    let mut tx2 = db.write_tx().unwrap();
+
+                    // Both read and write key 0
+                    let _ = tx1.get(ks.inner(), 0u64.to_be_bytes());
+                    tx1.insert(ks.inner(), 0u64.to_be_bytes(), b"tx1");
+
+                    let _ = tx2.get(ks.inner(), 0u64.to_be_bytes());
+                    tx2.insert(ks.inner(), 0u64.to_be_bytes(), b"tx2");
+
+                    // First commit succeeds
+                    match tx1.commit() {
                         Ok(Ok(())) => {}
                         Ok(Err(_conflict)) => conflicts += 1,
-                        Err(e) => panic!("unexpected error: {e}"),
+                        Err(e) => panic!("unexpected error on tx1: {e}"),
+                    }
+
+                    // Second commit should conflict (read set invalidated by tx1)
+                    match tx2.commit() {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_conflict)) => conflicts += 1,
+                        Err(e) => panic!("unexpected error on tx2: {e}"),
                     }
                 }
-                // Return conflicts count so criterion doesn't optimize it away
                 conflicts
             },
-            criterion::BatchSize::SmallInput,
+            criterion::BatchSize::PerIteration,
         );
     });
 
