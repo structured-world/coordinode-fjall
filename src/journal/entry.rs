@@ -206,6 +206,12 @@ impl From<Tag> for u8 {
 
 /// Decodes item payload fields (everything after the tag byte) from a reader.
 /// Shared between `Tag::Item` and `Tag::SingleItem` decoding.
+///
+/// The `u32 as usize` casts use `#[allow(clippy::cast_possible_truncation)]`
+/// (not `#[expect]`) because the lint only fires when usize < 32 bits — on
+/// 64-bit hosts the cast is lossless and `expect` would be unfulfilled.
+/// Per-statement `#[allow]` is kept (rather than a helper) to match the
+/// symmetrical pattern in [`serialize_item_payload`].
 fn decode_item_payload<R: Read>(
     reader: &mut R,
 ) -> Result<
