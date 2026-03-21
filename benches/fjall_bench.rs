@@ -160,7 +160,7 @@ fn tx_conflict_rate(c: &mut Criterion) {
                         Err(e) => panic!("unexpected error on tx2: {e}"),
                     }
                 }
-                conflicts
+                criterion::black_box(conflicts)
             },
             criterion::BatchSize::PerIteration,
         );
@@ -195,8 +195,10 @@ fn recovery_time(c: &mut Criterion) {
                 }
                 let path = tmpdir.path().to_path_buf();
 
+                // Repeated reopens of the same path are intentional: measures warm
+                // recovery time (OS page cache populated). Cold recovery would require
+                // a fresh tmpdir per iteration, defeating the one-time population setup.
                 b.iter(|| {
-                    // Measure: reopen (includes journal recovery)
                     let db = Database::builder(&path).open().unwrap();
                     let ks = db
                         .keyspace("bench", KeyspaceCreateOptions::default)

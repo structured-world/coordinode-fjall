@@ -331,7 +331,8 @@ fn rollback_does_not_leak_writes() -> Result {
 
     env.ks.insert("key", b"original")?;
 
-    // T1: write new value but roll back
+    // T1: write new value but roll back.
+    // rollback(self) consumes the transaction — tx1 is dropped here.
     let mut tx1 = env.db.write_tx()?;
     tx1.insert(env.ks.inner(), "key", b"rolled_back_value");
     tx1.rollback();
