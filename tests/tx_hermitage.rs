@@ -20,15 +20,18 @@ struct TestEnv {
     db: OptimisticTxDatabase,
     ks: OptimisticTxKeyspace,
     // Prevent early cleanup — dropping TempDir deletes the directory on disk.
-    #[expect(unused)]
-    tmpdir: TempDir,
+    _tmpdir: TempDir,
 }
 
 fn setup() -> Result<TestEnv> {
     let tmpdir = tempfile::tempdir()?;
     let db = OptimisticTxDatabase::builder(tmpdir.path()).open()?;
     let ks = db.keyspace("test", KeyspaceCreateOptions::default)?;
-    Ok(TestEnv { db, ks, tmpdir })
+    Ok(TestEnv {
+        db,
+        ks,
+        _tmpdir: tmpdir,
+    })
 }
 
 /// Two transactions both read the same key, then write a new value based on
@@ -92,14 +95,14 @@ fn write_skew_detected() -> Result {
     assert_eq!(alice.as_ref(), b"true");
     tx2.insert(env.ks.inner(), "bob_oncall", b"false");
 
-    // One must succeed, the other must conflict
+    // First commit succeeds; second must conflict under SSI
     let r1 = tx1.commit()?;
-    let r2 = tx2.commit()?;
+    assert!(r1.is_ok(), "first commit should succeed");
 
-    let conflicts = [r1.is_err(), r2.is_err()];
+    let r2 = tx2.commit()?;
     assert!(
-        conflicts.iter().any(|c| *c),
-        "at least one transaction must conflict to prevent write skew"
+        r2.is_err(),
+        "second transaction must conflict to prevent write skew"
     );
     Ok(())
 }

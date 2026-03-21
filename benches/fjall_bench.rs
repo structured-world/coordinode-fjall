@@ -137,17 +137,23 @@ fn tx_conflict_rate(c: &mut Criterion) {
                     let mut tx1 = db.write_tx().unwrap();
                     let mut tx2 = db.write_tx().unwrap();
 
-                    // Both read and write key 0
-                    tx1.get(ks.inner(), 0u64.to_be_bytes()).unwrap();
+                    // Both read and write key 0; assert seeded key is visible
+                    assert!(
+                        tx1.get(ks.inner(), 0u64.to_be_bytes()).unwrap().is_some(),
+                        "seeded key 0 must be present for tx1"
+                    );
                     tx1.insert(ks.inner(), 0u64.to_be_bytes(), b"tx1");
 
-                    tx2.get(ks.inner(), 0u64.to_be_bytes()).unwrap();
+                    assert!(
+                        tx2.get(ks.inner(), 0u64.to_be_bytes()).unwrap().is_some(),
+                        "seeded key 0 must be present for tx2"
+                    );
                     tx2.insert(ks.inner(), 0u64.to_be_bytes(), b"tx2");
 
-                    // First commit succeeds
+                    // First commit must succeed; a conflict here is a bug
                     match tx1.commit() {
                         Ok(Ok(())) => {}
-                        Ok(Err(_conflict)) => conflicts += 1,
+                        Ok(Err(c)) => panic!("unexpected conflict on tx1: {c:?}"),
                         Err(e) => panic!("unexpected error on tx1: {e}"),
                     }
 
