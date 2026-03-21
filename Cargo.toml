@@ -30,7 +30,7 @@ byteview = "~0.10.1"
 # Fork with V4 disk format + SequenceNumberGenerator trait (structured-world/lsm-tree#10).
 # TODO(#24): pin to tag = "v4.0.0" once lsm-tree release management is done.
 # Pinned to rev for reproducible builds until tag exists.
-lsm-tree = { git = "https://github.com/structured-world/lsm-tree.git", rev = "c03a443", default-features = false, features = [] }
+lsm-tree = { git = "https://github.com/structured-world/lsm-tree.git", rev = "c03a443515ce90b70d40200d679c77a170209d83", default-features = false, features = [] }
 log = "0.4.27"
 tempfile = "3.20.0"
 dashmap = "6.1.0"

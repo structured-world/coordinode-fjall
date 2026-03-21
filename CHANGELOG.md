@@ -5,7 +5,7 @@
 
 ## 4.0.0
 
-Fork epoch release. Aligned with lsm-tree v4.0.0 (V4 disk format).
+Fork epoch release. Aligned with lsm-tree V4 disk format (based on pre-4.0.0 git revision; see Cargo.toml for exact commit).
 
 - [feat] Custom sequence number generators (`SequenceNumberGenerator` trait)
 - [feat] Snapshot (non-serializable) reads in `OptimisticTxDatabase`
