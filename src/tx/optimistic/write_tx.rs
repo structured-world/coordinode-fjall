@@ -140,7 +140,7 @@ impl WriteTransaction {
     /// # Examples
     ///
     /// ```
-    /// # use fjall::{OptimisticTxDatabase, KeyspaceCreateOptions, Readable};
+    /// # use fjall::{OptimisticTxDatabase, KeyspaceCreateOptions};
     /// #
     /// # let folder = tempfile::tempdir()?;
     /// # let db = OptimisticTxDatabase::builder(folder).open()?;
@@ -149,8 +149,9 @@ impl WriteTransaction {
     ///
     /// let mut tx = db.write_tx()?;
     /// let val = tx.get_for_update(&tree, "a")?;
+    /// assert!(val.is_some());
     /// // This read is tracked: concurrent writes to "a" will cause a conflict
-    /// tx.commit()?;
+    /// assert!(matches!(tx.commit()?, Ok(())));
     /// #
     /// # Ok::<(), fjall::Error>(())
     /// ```
@@ -164,10 +165,11 @@ impl WriteTransaction {
         key: K,
     ) -> crate::Result<Option<UserValue>> {
         let keyspace = keyspace.as_ref();
+        let key = key.as_ref();
 
-        let res = self.inner.get(keyspace, key.as_ref())?;
+        let res = self.inner.get(keyspace, key)?;
 
-        self.cm.mark_read(keyspace.id, key.as_ref().into());
+        self.cm.mark_read(keyspace.id, key.into());
 
         Ok(res)
     }
@@ -186,10 +188,11 @@ impl WriteTransaction {
         key: K,
     ) -> crate::Result<bool> {
         let keyspace = keyspace.as_ref();
+        let key = key.as_ref();
 
-        let contains = self.inner.contains_key(keyspace, key.as_ref())?;
+        let contains = self.inner.contains_key(keyspace, key)?;
 
-        self.cm.mark_read(keyspace.id, key.as_ref().into());
+        self.cm.mark_read(keyspace.id, key.into());
 
         Ok(contains)
     }
