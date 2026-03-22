@@ -139,11 +139,12 @@ fn backup_with_flushed_segments() -> fjall::Result<()> {
     let items = restored.keyspace("items", KeyspaceCreateOptions::default)?;
 
     // Flushed data
+    let expected = vec![b'x'; 1024];
     for i in 0..1000u64 {
         let val = items
             .get(i.to_be_bytes())?
             .expect("flushed key should exist");
-        assert_eq!(&*val, vec![b'x'; 1024]);
+        assert_eq!(&*val, expected.as_slice());
     }
 
     // Memtable data (recovered from journal)

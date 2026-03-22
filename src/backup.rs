@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    file::{fsync_directory, KEYSPACES_FOLDER, LOCK_FILE, VERSION_MARKER},
+    file::{
+        fsync_directory, KEYSPACES_FOLDER, LOCK_FILE, LSM_CURRENT_VERSION_MARKER, VERSION_MARKER,
+    },
     Database,
 };
 use lsm_tree::AbstractTree;
@@ -61,12 +63,12 @@ fn backup_tree(tree: &lsm_tree::AnyTree, dst_dir: &Path) -> crate::Result<()> {
     // between the copy and the snapshot, we link extra tables (which recovery
     // cleans up as orphans) rather than missing tables (which would be fatal).
 
-    // Copy manifest ("current" file). This is required for keyspace recovery:
+    // Copy manifest (LSM_CURRENT_VERSION_MARKER file). This is required for keyspace recovery:
     // recovery deletes keyspaces without a `current` marker, so backing up
     // without it would produce an incomplete backup.
-    let manifest_src = src_dir.join("current");
+    let manifest_src = src_dir.join(LSM_CURRENT_VERSION_MARKER);
     if manifest_src.try_exists()? {
-        copy_and_fsync(&manifest_src, &dst_dir.join("current"))?;
+        copy_and_fsync(&manifest_src, &dst_dir.join(LSM_CURRENT_VERSION_MARKER))?;
     } else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
