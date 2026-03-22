@@ -967,19 +967,23 @@ impl Keyspace {
     /// other operands during reads and compaction, using the merge operator
     /// registered on this keyspace.
     ///
-    /// # Panics
-    ///
-    /// Panics if no merge operator was registered for this keyspace.
-    ///
     /// # Errors
     ///
-    /// Will return `Err` if an IO error occurs.
+    /// Will return `Err` if an IO error occurs, or if no merge operator
+    /// was registered for this keyspace.
     pub fn merge<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,
         operand: V,
     ) -> crate::Result<()> {
         use std::sync::atomic::Ordering;
+
+        if self.config.merge_operator.is_none() {
+            return Err(crate::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "merge() called on keyspace without a merge operator",
+            )));
+        }
 
         if self.is_deleted.load(Ordering::Relaxed) {
             return Err(crate::Error::KeyspaceDeleted);

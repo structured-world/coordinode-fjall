@@ -255,18 +255,21 @@ impl SingleWriterTxKeyspace {
     ///
     /// The operation will run wrapped in a transaction.
     ///
-    /// # Panics
-    ///
-    /// Panics if no merge operator was registered for this keyspace.
-    ///
     /// # Errors
     ///
-    /// Will return `Err` if an IO error occurs.
+    /// Will return `Err` if an IO error occurs, or if no merge operator
+    /// was registered for this keyspace.
     pub fn merge<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,
         operand: V,
     ) -> crate::Result<()> {
+        if self.inner().config.merge_operator.is_none() {
+            return Err(crate::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "merge() called on keyspace without a merge operator",
+            )));
+        }
         let mut tx = self.db.write_tx();
         tx.merge(self, key, operand);
         tx.commit()?;

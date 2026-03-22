@@ -19,7 +19,7 @@ pub type CompactionFilterAssigner =
 /// During recovery, keyspaces are rebuilt from metadata and this function
 /// is called to re-install the merge operator (which is not persisted).
 pub type MergeOperatorAssigner =
-    Arc<dyn Fn(&str) -> Option<Arc<dyn lsm_tree::MergeOperator>> + Send + Sync>;
+    Arc<dyn Fn(&str) -> Option<Arc<dyn crate::MergeOperator>> + Send + Sync>;
 
 /// Controls which journal (WAL) implementation the database uses.
 ///

@@ -264,6 +264,10 @@ impl BaseTransaction {
         key: K,
         value: V,
     ) {
+        // NOTE: DefaultUserComparator is correct — fjall does not expose custom
+        // comparators at the keyspace level. If custom comparators are added in
+        // the future, this (and remove/remove_weak/merge below) must pull the
+        // comparator from the keyspace config.
         self.memtables
             .entry(keyspace.clone())
             .or_insert_with(|| {
