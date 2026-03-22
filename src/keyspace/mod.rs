@@ -193,6 +193,15 @@ impl std::hash::Hash for Keyspace {
 }
 
 impl Keyspace {
+    /// Returns the journal persist mode for this keyspace.
+    fn persist_mode(&self) -> Option<crate::PersistMode> {
+        if self.config.manual_journal_persist {
+            None
+        } else {
+            Some(crate::PersistMode::Buffer)
+        }
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn id(&self) -> InternalKeyspaceId {
@@ -241,11 +250,7 @@ impl Keyspace {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn clear(&self) -> crate::Result<()> {
-        let persist_mode = if self.config.manual_journal_persist {
-            None
-        } else {
-            Some(crate::PersistMode::Buffer)
-        };
+        let persist_mode = self.persist_mode();
 
         let (seqno, _op) = self.supervisor.write_group.submit(
             WriteOp::Clear {
@@ -258,12 +263,19 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
-        // IMPORTANT: applied() must run even if tree.clear() fails,
-        // otherwise this seqno stays permanently pending in the watermark
-        // tracker, blocking MVCC visibility from ever advancing.
-        let result = self.tree.clear();
-        self.supervisor.pending_watermark.applied(seqno);
-        Ok(result?)
+        match self.tree.clear() {
+            Ok(()) => {
+                self.supervisor.pending_watermark.applied(seqno);
+                Ok(())
+            }
+            Err(e) => {
+                // Remove from pending without advancing watermark — the data
+                // is journaled but not in the memtable, so snapshot reads must
+                // not observe this seqno as visible.
+                self.supervisor.pending_watermark.aborted(seqno);
+                Err(e.into())
+            }
+        }
     }
 
     /// Returns the number of blob bytes on disk that are not referenced.
@@ -922,11 +934,7 @@ impl Keyspace {
         let key = key.into();
         let value = value.into();
 
-        let persist_mode = if self.config.manual_journal_persist {
-            None
-        } else {
-            Some(crate::PersistMode::Buffer)
-        };
+        let persist_mode = self.persist_mode();
 
         let (seqno, op) = self.supervisor.write_group.submit(
             WriteOp::Raw {
@@ -1061,11 +1069,7 @@ impl Keyspace {
 
         let key = key.into();
 
-        let persist_mode = if self.config.manual_journal_persist {
-            None
-        } else {
-            Some(crate::PersistMode::Buffer)
-        };
+        let persist_mode = self.persist_mode();
 
         let (seqno, op) = self.supervisor.write_group.submit(
             WriteOp::Raw {
@@ -1145,11 +1149,7 @@ impl Keyspace {
 
         let key = key.into();
 
-        let persist_mode = if self.config.manual_journal_persist {
-            None
-        } else {
-            Some(crate::PersistMode::Buffer)
-        };
+        let persist_mode = self.persist_mode();
 
         let (seqno, op) = self.supervisor.write_group.submit(
             WriteOp::Raw {

@@ -295,6 +295,9 @@ impl WriteGroup {
             // IMPORTANT: register seqnos as pending BEFORE waking followers.
             // This ensures the watermark can't advance past these seqnos
             // until all memtable applies are complete.
+            // NOTE: this line is only reached if ALL journal writes + persist
+            // succeeded — error paths above return before reaching here,
+            // so no seqnos are left orphaned in the pending set on failure.
             watermark.register(&seqnos);
 
             // Deliver results: move ops back to callers for memtable apply
@@ -384,6 +387,20 @@ impl PendingWatermark {
             inner.pending.insert(seqno);
             inner.max_registered = inner.max_registered.max(seqno);
         }
+    }
+
+    /// Remove a seqno from pending WITHOUT advancing the watermark.
+    ///
+    /// Use when the memtable apply failed — the journal entry exists but
+    /// the data is not in the memtable. This unblocks the watermark for
+    /// other seqnos without falsely claiming this seqno is visible.
+    pub(crate) fn aborted(&self, seqno: SeqNo) {
+        #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
+        let mut inner = self.inner.lock().expect("watermark lock poisoned");
+        inner.pending.remove(&seqno);
+        // Do NOT publish — the data for this seqno is not in the memtable.
+        // The watermark will advance past this seqno only when a later
+        // seqno's applied() finds pending empty or min > this seqno.
     }
 
     /// Mark a seqno as applied (memtable write complete) and advance the
