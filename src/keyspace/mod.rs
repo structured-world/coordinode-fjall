@@ -258,11 +258,12 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
-        self.tree.clear()?;
-
+        // IMPORTANT: applied() must run even if tree.clear() fails,
+        // otherwise this seqno stays permanently pending in the watermark
+        // tracker, blocking MVCC visibility from ever advancing.
+        let result = self.tree.clear();
         self.supervisor.pending_watermark.applied(seqno);
-
-        Ok(())
+        Ok(result?)
     }
 
     /// Returns the number of blob bytes on disk that are not referenced.
