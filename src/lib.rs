@@ -149,11 +149,7 @@ pub use {
     error::{Error, Result},
     guard::Guard,
     iter::Iter,
-    journal::{
-        error::RecoveryError as JournalRecoveryError,
-        noop::NoopWriter as JournalNoopWriter,
-        writer::{JournalWriter, PersistMode},
-    },
+    journal::{error::RecoveryError as JournalRecoveryError, writer::PersistMode},
     keyspace::{options::CreateOptions as KeyspaceCreateOptions, Keyspace},
     readable::Readable,
     snapshot::Snapshot,

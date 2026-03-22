@@ -645,32 +645,41 @@ impl Database {
             // Warn about leftover .jnl files from a prior file-based run to prevent
             // silent mode switches or accumulating unused disk space.
             // Journal files live at config.path (DB root), not in a subdirectory.
-            if let Ok(entries) = std::fs::read_dir(&config.path) {
-                for entry_result in entries {
-                    let entry = match entry_result {
-                        Ok(e) => e,
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to read directory entry in {} while scanning \
+            match std::fs::read_dir(&config.path) {
+                Err(e) => {
+                    log::warn!(
+                        "Failed to scan {} for leftover journal files while opening \
+                         in noop journal mode: {e}",
+                        config.path.display(),
+                    );
+                }
+                Ok(entries) => {
+                    for entry_result in entries {
+                        let entry = match entry_result {
+                            Ok(e) => e,
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to read directory entry in {} while scanning \
                                  for leftover journal files: {e}",
-                                config.path.display(),
-                            );
-                            continue;
-                        }
-                    };
+                                    config.path.display(),
+                                );
+                                continue;
+                            }
+                        };
 
-                    if entry.file_type().is_ok_and(|ft| ft.is_file())
-                        && entry
-                            .path()
-                            .extension()
-                            .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
-                    {
-                        log::warn!(
-                            "Found existing journal file {} while opening in noop \
+                        if entry.file_type().is_ok_and(|ft| ft.is_file())
+                            && entry
+                                .path()
+                                .extension()
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
+                        {
+                            log::warn!(
+                                "Found existing journal file {} while opening in noop \
                              journal mode; it will be ignored. Consider removing it \
                              or switching to JournalMode::File.",
-                            entry.path().display(),
-                        );
+                                entry.path().display(),
+                            );
+                        }
                     }
                 }
             }
