@@ -298,12 +298,7 @@ impl Database {
             let mut journal_writer = self.supervisor.journal.get_writer();
 
             // Flush and fsync the active journal
-            journal_writer
-                .persist(crate::PersistMode::SyncAll)
-                .map_err(|e| {
-                    log::error!("Failed to persist journal during backup: {e:?}");
-                    e
-                })?;
+            journal_writer.persist(crate::PersistMode::SyncAll)?;
 
             // Copy active journal file (if file-based)
             if let Some(active_path) = journal_writer.path() {
@@ -354,5 +349,57 @@ impl Database {
         log::debug!("Journal files copied. Hard-linking segments...");
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn backup_tree_missing_manifest_returns_error() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let dst_path = dst.path().join("out");
+        std::fs::create_dir_all(&dst_path).unwrap();
+
+        // src has no "current" file → backup_tree should return NotFound
+        let result = backup_tree(src.path(), &dst_path);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(&err, crate::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound),
+            "expected NotFound for missing manifest, got: {err:?}",
+        );
+    }
+
+    #[test]
+    fn copy_and_fsync_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.dat");
+        let dst = dir.path().join("dst.dat");
+
+        let data = b"hello backup";
+        std::fs::write(&src, data).unwrap();
+
+        copy_and_fsync(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), data);
+    }
+
+    #[test]
+    fn effective_parent_normalizes_empty() {
+        // Relative path like "backup" has parent Some("")
+        assert_eq!(effective_parent(Path::new("backup")), PathBuf::from("."));
+
+        // Absolute path returns actual parent
+        let p = effective_parent(Path::new("/tmp/backup"));
+        assert_eq!(p, PathBuf::from("/tmp"));
+
+        // Nested relative path returns parent
+        let p = effective_parent(Path::new("a/b/c"));
+        assert_eq!(p, PathBuf::from("a/b"));
     }
 }

@@ -2,6 +2,7 @@ use fjall::{
     Database, JournalMode, KeyspaceCreateOptions, KvSeparationOptions, OptimisticTxDatabase,
     PersistMode, SingleWriterTxDatabase,
 };
+use std::sync::{atomic::AtomicBool, Arc};
 use test_log::test;
 
 #[test]
@@ -394,6 +395,73 @@ fn backup_twice_to_same_path_fails() -> fjall::Result<()> {
         matches!(&err, fjall::Error::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists),
         "expected AlreadyExists, got: {err:?}",
     );
+
+    Ok(())
+}
+
+#[test]
+fn backup_under_concurrent_writes() -> fjall::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let backup = tempfile::tempdir()?;
+    let backup_path = backup.path().join("backup");
+
+    let db = Database::builder(&folder).open()?;
+    let items = db.keyspace("items", KeyspaceCreateOptions::default)?;
+
+    // Pre-populate with some data and flush to create SSTs
+    for i in 0..100u64 {
+        items.insert(i.to_be_bytes(), b"initial")?;
+    }
+    items.rotate_memtable_and_wait()?;
+    db.persist(PersistMode::SyncAll)?;
+
+    // Spawn concurrent writer threads that insert, flush, and persist
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut handles = vec![];
+
+    for thread_id in 0..3u64 {
+        let db_clone = db.clone();
+        let items_clone = items.clone();
+        let stop_clone = stop.clone();
+
+        handles.push(std::thread::spawn(move || {
+            let mut counter = 0u64;
+            while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let key = format!("t{thread_id}-{counter}");
+                items_clone.insert(key.as_bytes(), b"concurrent").ok();
+                counter += 1;
+
+                // Periodically flush to create SSTs during backup
+                if counter % 50 == 0 {
+                    items_clone.rotate_memtable_and_wait().ok();
+                    db_clone.persist(PersistMode::SyncAll).ok();
+                }
+            }
+        }));
+    }
+
+    // Run backup while writers are active
+    db.backup_to(&backup_path)?;
+
+    // Stop writers
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for h in handles {
+        h.join().ok();
+    }
+
+    drop(items);
+    drop(db);
+
+    // Verify backup opens and contains at least the pre-populated data
+    let restored = Database::builder(&backup_path).open()?;
+    let items = restored.keyspace("items", KeyspaceCreateOptions::default)?;
+
+    for i in 0..100u64 {
+        assert!(
+            items.get(i.to_be_bytes())?.is_some(),
+            "pre-populated key {i} missing from backup",
+        );
+    }
 
     Ok(())
 }
