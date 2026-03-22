@@ -19,6 +19,7 @@ use crate::{
     stats::Stats,
     supervisor::Supervisor,
     worker_pool::WorkerMessage,
+    write_group::WriteOp,
     Database, Guard, Iter,
 };
 use lsm_tree::{AbstractTree, AnyTree, SeqNo, UserKey, UserValue};
@@ -240,34 +241,25 @@ impl Keyspace {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn clear(&self) -> crate::Result<()> {
-        use std::sync::atomic::Ordering;
+        let persist_mode = if self.config.manual_journal_persist {
+            None
+        } else {
+            Some(crate::PersistMode::Buffer)
+        };
 
-        let mut journal_writer = self.supervisor.journal.get_writer();
-
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
-
-        let seqno = self.supervisor.seqno.next();
-
-        journal_writer.write_clear(self.id, seqno)?;
-
-        if !self.config.manual_journal_persist {
-            journal_writer
-                .persist(crate::PersistMode::Buffer)
-                .map_err(|e| {
-                    log::error!("persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}");
-                    self.is_poisoned.store(true, Ordering::Relaxed);
-                    e
-                })?;
-        }
+        let (seqno, _op) = self.supervisor.write_group.submit(
+            WriteOp::Clear {
+                keyspace_id: self.id,
+            },
+            persist_mode,
+            &self.supervisor.journal,
+            &self.supervisor.seqno,
+            &self.is_poisoned,
+        )?;
 
         self.tree.clear()?;
 
         self.supervisor.snapshot_tracker.publish(seqno);
-
-        drop(journal_writer);
 
         Ok(())
     }
@@ -928,32 +920,32 @@ impl Keyspace {
         let key = key.into();
         let value = value.into();
 
-        let mut journal_writer = self.supervisor.journal.get_writer();
+        let persist_mode = if self.config.manual_journal_persist {
+            None
+        } else {
+            Some(crate::PersistMode::Buffer)
+        };
 
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
+        let (seqno, op) = self.supervisor.write_group.submit(
+            WriteOp::Raw {
+                keyspace_id: self.id,
+                key,
+                value,
+                value_type: lsm_tree::ValueType::Value,
+            },
+            persist_mode,
+            &self.supervisor.journal,
+            &self.supervisor.seqno,
+            &self.is_poisoned,
+        )?;
 
-        let seqno = self.supervisor.seqno.next();
-
-        journal_writer.write_raw(self.id, &key, &value, lsm_tree::ValueType::Value, seqno)?;
-
-        if !self.config.manual_journal_persist {
-            journal_writer
-                .persist(crate::PersistMode::Buffer)
-                .map_err(|e| {
-                    log::error!("persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}");
-                    self.is_poisoned.store(true, Ordering::Relaxed);
-                    e
-                })?;
-        }
+        let WriteOp::Raw { key, value, .. } = op else {
+            unreachable!("submitted Raw, must get Raw back");
+        };
 
         let (item_size, memtable_size) = self.tree.insert(key, value, seqno);
 
         self.supervisor.snapshot_tracker.publish(seqno);
-
-        drop(journal_writer);
 
         self.supervisor.write_buffer_size.allocate(item_size);
         self.maintenance(memtable_size);
@@ -1066,32 +1058,32 @@ impl Keyspace {
 
         let key = key.into();
 
-        let mut journal_writer = self.supervisor.journal.get_writer();
+        let persist_mode = if self.config.manual_journal_persist {
+            None
+        } else {
+            Some(crate::PersistMode::Buffer)
+        };
 
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
+        let (seqno, op) = self.supervisor.write_group.submit(
+            WriteOp::Raw {
+                keyspace_id: self.id,
+                key,
+                value: vec![].into(),
+                value_type: lsm_tree::ValueType::Tombstone,
+            },
+            persist_mode,
+            &self.supervisor.journal,
+            &self.supervisor.seqno,
+            &self.is_poisoned,
+        )?;
 
-        let seqno = self.supervisor.seqno.next();
-
-        journal_writer.write_raw(self.id, &key, &[], lsm_tree::ValueType::Tombstone, seqno)?;
-
-        if !self.config.manual_journal_persist {
-            journal_writer
-                .persist(crate::PersistMode::Buffer)
-                .map_err(|e| {
-                    log::error!("persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}");
-                    self.is_poisoned.store(true, Ordering::Relaxed);
-                    e
-                })?;
-        }
+        let WriteOp::Raw { key, .. } = op else {
+            unreachable!("submitted Raw, must get Raw back");
+        };
 
         let (item_size, memtable_size) = self.tree.remove(key, seqno);
 
         self.supervisor.snapshot_tracker.publish(seqno);
-
-        drop(journal_writer);
 
         self.supervisor.write_buffer_size.allocate(item_size);
         self.maintenance(memtable_size);
@@ -1149,40 +1141,32 @@ impl Keyspace {
 
         let key = key.into();
 
-        let mut journal_writer = self.supervisor.journal.get_writer();
+        let persist_mode = if self.config.manual_journal_persist {
+            None
+        } else {
+            Some(crate::PersistMode::Buffer)
+        };
 
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
-
-        let seqno = self.supervisor.seqno.next();
-
-        journal_writer.write_raw(
-            self.id,
-            &key,
-            &[],
-            lsm_tree::ValueType::WeakTombstone,
-            seqno,
+        let (seqno, op) = self.supervisor.write_group.submit(
+            WriteOp::Raw {
+                keyspace_id: self.id,
+                key,
+                value: vec![].into(),
+                value_type: lsm_tree::ValueType::WeakTombstone,
+            },
+            persist_mode,
+            &self.supervisor.journal,
+            &self.supervisor.seqno,
+            &self.is_poisoned,
         )?;
 
-        if !self.config.manual_journal_persist {
-            journal_writer
-                .persist(crate::PersistMode::Buffer)
-                .map_err(|e| {
-                    log::error!(
-                        "persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}"
-                    );
-                    self.is_poisoned.store(true, Ordering::Relaxed);
-                    e
-                })?;
-        }
+        let WriteOp::Raw { key, .. } = op else {
+            unreachable!("submitted Raw, must get Raw back");
+        };
 
         let (item_size, memtable_size) = self.tree.remove(key, seqno);
 
         self.supervisor.snapshot_tracker.publish(seqno);
-
-        drop(journal_writer);
 
         self.supervisor.write_buffer_size.allocate(item_size);
         self.maintenance(memtable_size);

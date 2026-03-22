@@ -10,6 +10,7 @@ use crate::{
     journal::{manager::JournalManager, Journal},
     snapshot_tracker::SnapshotTracker,
     write_buffer_manager::WriteBufferManager,
+    write_group::WriteGroup,
 };
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -28,6 +29,9 @@ pub struct SupervisorInner {
     pub snapshot_tracker: SnapshotTracker,
 
     pub(crate) journal: Arc<Journal>,
+
+    /// Group commit pipeline — amortizes journal I/O across concurrent writers
+    pub(crate) write_group: WriteGroup,
 
     /// Tracks journal size and garbage collects sealed journals when possible
     pub(crate) journal_manager: Arc<RwLock<JournalManager>>,

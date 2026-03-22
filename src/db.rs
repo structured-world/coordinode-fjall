@@ -21,6 +21,7 @@ use crate::{
     version::FormatVersion,
     worker_pool::{WorkerMessage, WorkerPool},
     write_buffer_manager::WriteBufferManager,
+    write_group::WriteGroup,
     HashMap, Keyspace, KeyspaceCreateOptions,
 };
 use lsm_tree::{AbstractTree, SequenceNumberCounter, SharedSequenceNumberGenerator};
@@ -776,6 +777,7 @@ impl Database {
             write_buffer_size: WriteBufferManager::default(),
             snapshot_tracker: SnapshotTracker::new(visible_seqno),
             journal: active_journal,
+            write_group: WriteGroup::new(),
             journal_manager: Arc::new(RwLock::new(journal_manager)),
             backpressure_lock: Mutex::default(),
             seqno,
@@ -1035,6 +1037,7 @@ impl Database {
             write_buffer_size: WriteBufferManager::default(),
             snapshot_tracker: SnapshotTracker::new(visible_seqno),
             journal,
+            write_group: WriteGroup::new(),
             journal_manager: Arc::new(RwLock::new(JournalManager::new())),
             backpressure_lock: Mutex::default(),
             seqno,

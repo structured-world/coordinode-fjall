@@ -4,7 +4,7 @@
 
 pub mod item;
 
-use crate::{Database, Keyspace, PersistMode};
+use crate::{write_group::WriteOp, Database, Keyspace, PersistMode};
 use item::Item;
 use lsm_tree::{AbstractTree, UserKey, UserValue, ValueType};
 use std::collections::HashSet;
@@ -117,35 +117,25 @@ impl WriteBatch {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::missing_panics_doc)]
     pub fn commit(mut self) -> crate::Result<()> {
-        use std::sync::atomic::Ordering;
-
         if self.is_empty() {
             return Ok(());
         }
 
-        log::trace!("batch: Acquiring journal writer");
-        let mut journal_writer = self.db.supervisor.journal.get_writer();
+        let items = std::mem::take(&mut self.data);
 
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.db.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
+        log::trace!("batch: Submitting {} items to write group", items.len());
 
-        let batch_seqno = self.db.supervisor.seqno.next();
+        let (batch_seqno, op) = self.db.supervisor.write_group.submit(
+            WriteOp::Batch { items },
+            self.durability,
+            &self.db.supervisor.journal,
+            &self.db.supervisor.seqno,
+            &self.db.is_poisoned,
+        )?;
 
-        journal_writer.write_batch(&self.data, batch_seqno)?;
-
-        if let Some(mode) = self.durability {
-            if let Err(e) = journal_writer.persist(mode) {
-                self.db.is_poisoned.store(true, Ordering::Release);
-
-                log::error!(
-                    "persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}"
-                );
-
-                return Err(crate::Error::Poisoned);
-            }
-        }
+        let WriteOp::Batch { items } = op else {
+            unreachable!("submitted Batch, must get Batch back");
+        };
 
         // TODO: maybe we can use a stack alloc hashset/vec here, such as smallset
         #[expect(clippy::mutable_key_type)]
@@ -161,9 +151,9 @@ impl WriteBatch {
 
         let mut batch_size = 0u64;
 
-        log::trace!("Applying batch (size={}) to memtable(s)", self.data.len());
+        log::trace!("Applying batch (size={}) to memtable(s)", items.len());
 
-        for item in std::mem::take(&mut self.data) {
+        for item in items {
             // TODO: need a better, generic write op
             let (item_size, _) = match item.value_type {
                 ValueType::Value => item.keyspace.tree.insert(item.key, item.value, batch_seqno),
@@ -188,9 +178,7 @@ impl WriteBatch {
 
         self.db.supervisor.snapshot_tracker.publish(batch_seqno);
 
-        drop(journal_writer);
-
-        log::trace!("batch: Freed journal writer");
+        log::trace!("batch: Write group commit done");
 
         drop(keyspaces);
 
