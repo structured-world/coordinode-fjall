@@ -646,7 +646,19 @@ impl Database {
             // silent mode switches or accumulating unused disk space.
             // Journal files live at config.path (DB root), not in a subdirectory.
             if let Ok(entries) = std::fs::read_dir(&config.path) {
-                for entry in entries.flatten() {
+                for entry_result in entries {
+                    let entry = match entry_result {
+                        Ok(e) => e,
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to read directory entry in {} while scanning \
+                                 for leftover journal files: {e}",
+                                config.path.display(),
+                            );
+                            continue;
+                        }
+                    };
+
                     if entry.file_type().is_ok_and(|ft| ft.is_file())
                         && entry
                             .path()

@@ -38,13 +38,16 @@ use std::{
 ///     .open()
 ///     .unwrap();
 /// ```
-#[expect(clippy::missing_errors_doc)]
 #[expect(
     clippy::len_without_is_empty,
     reason = "len() returns file size (includes pre-allocated space), not entry count — is_empty() would be misleading"
 )]
 pub trait JournalWriter: Send {
     /// Writes a single key-value item using the compact `SingleItem` format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn write_raw(
         &mut self,
         keyspace_id: InternalKeyspaceId,
@@ -55,9 +58,17 @@ pub trait JournalWriter: Send {
     ) -> crate::Result<usize>;
 
     /// Writes a batch of items to the journal atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn write_batch(&mut self, items: &[BatchItem], seqno: SeqNo) -> crate::Result<usize>;
 
     /// Writes a clear marker for a keyspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn write_clear(
         &mut self,
         keyspace_id: InternalKeyspaceId,
@@ -65,19 +76,38 @@ pub trait JournalWriter: Send {
     ) -> crate::Result<usize>;
 
     /// Persists the journal to the requested durability level.
+    ///
+    /// Uses `std::io::Result` to match the existing `Writer::persist` signature,
+    /// which callers convert via `Into<crate::Error>` at the call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fsync/flush fails.
     fn persist(&mut self, mode: PersistMode) -> std::io::Result<()>;
 
     /// Returns the current write position in bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn pos(&mut self) -> crate::Result<u64>;
 
     /// Returns the total size in bytes of the journal.
     ///
     /// For file-based journals this is the file size (which may include
     /// pre-allocated space), not the number of written entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn len(&self) -> crate::Result<u64>;
 
     /// Seals the current journal and creates a new one.
     /// Returns `(sealed_path, new_path)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying I/O operation fails.
     fn rotate(&mut self) -> crate::Result<(PathBuf, PathBuf)>;
 
     /// Sets compression parameters for journal entries.
@@ -85,8 +115,9 @@ pub trait JournalWriter: Send {
 
     /// Returns the path of the journal file, if applicable.
     ///
-    /// Returns owned `PathBuf` because `dyn JournalWriter` behind `Mutex<Box<_>>`
-    /// cannot return borrows tied to the inner state. Called infrequently
+    /// Returns owned `PathBuf` because callers access it through
+    /// `MutexGuard<Box<dyn JournalWriter>>` — the guard is dropped
+    /// before any returned borrow could be used. Called infrequently
     /// (recovery + debug), not on the write hot path.
     fn path(&self) -> Option<PathBuf>;
 }
