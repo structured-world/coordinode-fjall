@@ -99,10 +99,9 @@ fn backup_destination_already_exists() -> fjall::Result<()> {
     let result = db.backup_to(&backup_path);
 
     let err = result.expect_err("backup_to should fail when destination directory already exists");
-    let msg = err.to_string();
     assert!(
-        msg.contains("AlreadyExists") || msg.contains("already exists"),
-        "unexpected backup_to error when destination already exists: {msg}",
+        matches!(&err, fjall::Error::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists),
+        "expected AlreadyExists, got: {err:?}",
     );
 
     Ok(())
