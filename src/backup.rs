@@ -26,6 +26,13 @@ fn link_or_copy(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Copies `src` to `dst` and fsyncs the destination file to ensure durability.
+fn copy_and_fsync(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::copy(src, dst)?;
+    let file = std::fs::File::open(dst)?;
+    file.sync_all()
+}
+
 /// LSM-tree on-disk layout:
 ///   `<keyspace>/current`       — manifest pointer (references active version)
 ///   `<keyspace>/v<N>`          — version snapshots
@@ -34,7 +41,7 @@ fn link_or_copy(src: &Path, dst: &Path) -> std::io::Result<()> {
 ///
 /// Copies an LSM-tree's on-disk files into `dst_dir`:
 /// - SST and blob files are hard-linked (immutable, zero-copy safe)
-/// - Version files and manifest are copied (small, mutable metadata)
+/// - Version files and manifest are copied and fsynced (small, mutable metadata)
 fn backup_tree(tree: &lsm_tree::AnyTree, dst_dir: &Path) -> crate::Result<()> {
     let src_dir = &tree.tree_config().path;
     let version = tree.current_version();
@@ -75,21 +82,32 @@ fn backup_tree(tree: &lsm_tree::AnyTree, dst_dir: &Path) -> crate::Result<()> {
         fsync_directory(&blobs_dst)?;
     }
 
-    // Copy version files (v0, v1, v2, ...) — small metadata, always copy
+    // Copy and fsync version files (v0, v1, v2, ...) — small metadata
     for entry in std::fs::read_dir(src_dir)? {
         let entry = entry?;
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
         if name_str.starts_with('v') && entry.file_type()?.is_file() {
-            std::fs::copy(entry.path(), dst_dir.join(&name))?;
+            copy_and_fsync(&entry.path(), &dst_dir.join(&name))?;
         }
     }
 
-    // Copy manifest ("current" file)
+    // Copy manifest ("current" file). This is required for keyspace recovery:
+    // recovery deletes keyspaces without a `current` marker, so backing up
+    // without it would produce an incomplete backup.
     let manifest_src = src_dir.join("current");
     if manifest_src.try_exists()? {
-        std::fs::copy(&manifest_src, dst_dir.join("current"))?;
+        copy_and_fsync(&manifest_src, &dst_dir.join("current"))?;
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "missing manifest file `current` in keyspace directory {}",
+                src_dir.display()
+            ),
+        )
+        .into());
     }
 
     fsync_directory(dst_dir)?;
@@ -160,18 +178,29 @@ impl Database {
 
         log::info!("Starting online backup to {}", path.display());
 
-        // Destination must not exist (prevent accidental overwrites)
-        if path.try_exists()? {
-            return Err(crate::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("backup destination already exists: {}", path.display()),
-            )));
+        // Atomically create the destination directory; fail if it already exists.
+        // Using create_dir (not create_dir_all) avoids the TOCTOU race between
+        // try_exists() and directory creation.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
 
-        // Create destination directory structure
-        std::fs::create_dir_all(path)?;
+        match std::fs::create_dir(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(crate::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!("backup destination already exists: {}", path.display()),
+                )));
+            }
+            Err(e) => {
+                return Err(crate::Error::Io(e));
+            }
+        }
+
+        // Create destination keyspace directory
         let keyspaces_dst = path.join(KEYSPACES_FOLDER);
-        std::fs::create_dir_all(&keyspaces_dst)?;
+        std::fs::create_dir(&keyspaces_dst)?;
 
         self.backup_journals(path)?;
 
@@ -189,19 +218,22 @@ impl Database {
             }
         }
 
-        // Copy the database version marker
-        std::fs::copy(
-            self.config.path.join(VERSION_MARKER),
-            path.join(VERSION_MARKER),
+        // Copy and fsync the database version marker
+        copy_and_fsync(
+            &self.config.path.join(VERSION_MARKER),
+            &path.join(VERSION_MARKER),
         )
         .inspect_err(|e| {
             log::error!("Failed to copy version marker during backup: {e:?}");
         })?;
 
         // Create the lock file (recovery expects it to exist)
-        std::fs::File::create_new(path.join(LOCK_FILE)).inspect_err(|e| {
-            log::error!("Failed to create lock file in backup: {e:?}");
-        })?;
+        {
+            let lock = std::fs::File::create_new(path.join(LOCK_FILE)).inspect_err(|e| {
+                log::error!("Failed to create lock file in backup: {e:?}");
+            })?;
+            lock.sync_all()?;
+        }
 
         // Fsync all directories to ensure durability
         fsync_directory(&keyspaces_dst)?;
@@ -214,7 +246,9 @@ impl Database {
 
     /// Copies all journal files (active + sealed) into the backup directory.
     ///
-    /// Holds the journal lock for the duration — this is the write-pause window.
+    /// Holds the journal writer lock for the duration — this is the write-pause
+    /// window. The pre-allocated journal file may be up to 64 MiB but only the
+    /// written portion contains data; the copy is bounded by actual journal size.
     fn backup_journals(&self, backup_path: &Path) -> crate::Result<()> {
         let mut journal_writer = self.supervisor.journal.get_writer();
 
@@ -236,7 +270,7 @@ impl Database {
                 .file_name()
                 .expect("journal path should have file name");
 
-            std::fs::copy(&active_path, backup_path.join(filename)).inspect_err(|e| {
+            copy_and_fsync(&active_path, &backup_path.join(filename)).inspect_err(|e| {
                 log::error!(
                     "Failed to copy active journal {} during backup: {e:?}",
                     active_path.display(),
@@ -244,33 +278,38 @@ impl Database {
             })?;
         }
 
-        // Copy sealed journal files
-        #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
-        let sealed_paths = self
-            .supervisor
-            .journal_manager
-            .read()
-            .expect("lock is poisoned")
-            .sealed_journal_paths();
+        // Copy sealed journal files while holding a read lock on the journal manager.
+        // Without the lock, maintenance could delete a sealed journal between
+        // listing and copying, causing a spurious NotFound error.
+        {
+            #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
+            let journal_manager = self
+                .supervisor
+                .journal_manager
+                .read()
+                .expect("lock is poisoned");
 
-        for sealed_path in &sealed_paths {
-            #[expect(
-                clippy::expect_used,
-                reason = "sealed journal paths always have a file name component"
-            )]
-            let filename = sealed_path
-                .file_name()
-                .expect("sealed journal path should have file name");
+            let sealed_paths = journal_manager.sealed_journal_paths();
 
-            std::fs::copy(sealed_path, backup_path.join(filename)).inspect_err(|e| {
-                log::error!(
-                    "Failed to copy sealed journal {} during backup: {e:?}",
-                    sealed_path.display(),
-                );
-            })?;
+            for sealed_path in &sealed_paths {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "sealed journal paths always have a file name component"
+                )]
+                let filename = sealed_path
+                    .file_name()
+                    .expect("sealed journal path should have file name");
+
+                copy_and_fsync(sealed_path, &backup_path.join(filename)).inspect_err(|e| {
+                    log::error!(
+                        "Failed to copy sealed journal {} during backup: {e:?}",
+                        sealed_path.display(),
+                    );
+                })?;
+            }
         }
 
-        log::debug!("Journal files copied, lock released. Hard-linking segments...");
+        log::debug!("Journal files copied. Hard-linking segments...");
 
         Ok(())
     }
