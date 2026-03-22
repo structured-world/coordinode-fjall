@@ -248,6 +248,34 @@ impl SingleWriterTxKeyspace {
         Ok(())
     }
 
+    /// Stores a merge operand for the given key.
+    ///
+    /// The operand is lazily combined with the existing value during reads
+    /// and compaction, using the merge operator registered on this keyspace.
+    ///
+    /// The operation will run wrapped in a transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the operation fails, including
+    /// [`Error::MissingMergeOperator`](crate::Error::MissingMergeOperator)
+    /// when no merge operator was registered for this keyspace.
+    pub fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &self,
+        key: K,
+        operand: V,
+    ) -> crate::Result<()> {
+        // Fail fast before creating a write transaction; BaseTransaction::merge
+        // performs the same check but this avoids unnecessary tx overhead.
+        if self.inner().config.merge_operator.is_none() {
+            return Err(crate::Error::MissingMergeOperator);
+        }
+        let mut tx = self.db.write_tx();
+        tx.merge(self, key, operand)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Removes an item from the keyspace.
     ///
     /// The key may be up to 65536 bytes long.

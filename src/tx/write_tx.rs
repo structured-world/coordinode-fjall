@@ -252,6 +252,19 @@ impl BaseTransaction {
         Ok(prev)
     }
 
+    // NOTE: DefaultUserComparator is correct — fjall does not expose custom
+    // comparators at the keyspace level. If custom comparators are added in
+    // the future, this must pull the comparator from the keyspace config.
+    //
+    // The Arc<DefaultUserComparator> allocation happens at most once per
+    // keyspace per transaction (guarded by or_insert_with), which is not
+    // a hot path — transactions are short-lived.
+    fn memtable_for(&mut self, keyspace: &Keyspace) -> &Arc<Memtable> {
+        self.memtables.entry(keyspace.clone()).or_insert_with(|| {
+            Arc::new(Memtable::new(0, Arc::new(lsm_tree::DefaultUserComparator)))
+        })
+    }
+
     /// Inserts a key-value pair into the keyspace.
     ///
     /// Keys may be up to 65536 bytes long, values up to 2^32 bytes.
@@ -264,13 +277,12 @@ impl BaseTransaction {
         key: K,
         value: V,
     ) {
-        self.memtables
-            .entry(keyspace.clone())
-            .or_insert_with(|| Arc::new(Memtable::new(0)))
+        let seqno = self.seqno;
+        self.memtable_for(keyspace)
             .insert(lsm_tree::InternalValue::from_components(
                 key,
                 value,
-                self.seqno,
+                seqno,
                 lsm_tree::ValueType::Value,
             ));
 
@@ -282,10 +294,9 @@ impl BaseTransaction {
     /// The key may be up to 65536 bytes long.
     /// Shorter keys result in better performance.
     pub(super) fn remove<K: Into<UserKey>>(&mut self, keyspace: &Keyspace, key: K) {
-        self.memtables
-            .entry(keyspace.clone())
-            .or_insert_with(|| Arc::new(Memtable::new(0)))
-            .insert(lsm_tree::InternalValue::new_tombstone(key, self.seqno));
+        let seqno = self.seqno;
+        self.memtable_for(keyspace)
+            .insert(lsm_tree::InternalValue::new_tombstone(key, seqno));
 
         self.seqno += 1;
     }
@@ -300,12 +311,45 @@ impl BaseTransaction {
     /// The key may be up to 65536 bytes long.
     /// Shorter keys result in better performance.
     pub(super) fn remove_weak<K: Into<UserKey>>(&mut self, keyspace: &Keyspace, key: K) {
-        self.memtables
-            .entry(keyspace.clone())
-            .or_insert_with(|| Arc::new(Memtable::new(0)))
-            .insert(lsm_tree::InternalValue::new_weak_tombstone(key, self.seqno));
+        let seqno = self.seqno;
+        self.memtable_for(keyspace)
+            .insert(lsm_tree::InternalValue::new_weak_tombstone(key, seqno));
 
         self.seqno += 1;
+    }
+
+    /// Stores a merge operand for the given key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MissingMergeOperator` if no merge operator is configured.
+    ///
+    /// NOTE: the transaction commit path deduplicates entries by user key,
+    /// keeping only the last write per key. Multiple merge operands for the
+    /// same key within a single transaction will therefore collapse to the
+    /// last operand. Use separate transactions or `Keyspace::merge` directly
+    /// if all operands must be preserved.
+    pub(super) fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &mut self,
+        keyspace: &Keyspace,
+        key: K,
+        operand: V,
+    ) -> crate::Result<()> {
+        if keyspace.config.merge_operator.is_none() {
+            return Err(crate::Error::MissingMergeOperator);
+        }
+
+        let seqno = self.seqno;
+        self.memtable_for(keyspace)
+            .insert(lsm_tree::InternalValue::from_components(
+                key,
+                operand,
+                seqno,
+                lsm_tree::ValueType::MergeOperand,
+            ));
+
+        self.seqno += 1;
+        Ok(())
     }
 
     /// Commits the transaction.

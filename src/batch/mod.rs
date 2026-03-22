@@ -91,6 +91,25 @@ impl WriteBatch {
             .push(Item::new(p.clone(), key, vec![], ValueType::WeakTombstone));
     }
 
+    /// Adds a merge operand for a key.
+    ///
+    /// The operand is lazily combined with the existing value during reads
+    /// and compaction, using the merge operator registered on the keyspace.
+    ///
+    /// All items in a batch share a single sequence number at commit time,
+    /// so multiple merge operands for the same key may not all be preserved.
+    /// Use separate batches or `Keyspace::merge` directly when every
+    /// operand must be retained.
+    pub fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &mut self,
+        p: &Keyspace,
+        key: K,
+        operand: V,
+    ) {
+        self.data
+            .push(Item::new(p.clone(), key, operand, ValueType::MergeOperand));
+    }
+
     /// Commits the batch to the [`Database`] atomically.
     ///
     /// # Errors
@@ -150,6 +169,14 @@ impl WriteBatch {
                 ValueType::Value => item.keyspace.tree.insert(item.key, item.value, batch_seqno),
                 ValueType::Tombstone => item.keyspace.tree.remove(item.key, batch_seqno),
                 ValueType::WeakTombstone => item.keyspace.tree.remove_weak(item.key, batch_seqno),
+                ValueType::MergeOperand => {
+                    // Defense-in-depth: WriteBatch::merge doesn't validate at
+                    // enqueue time, so check here before writing to the tree.
+                    if item.keyspace.config.merge_operator.is_none() {
+                        return Err(crate::Error::MissingMergeOperator);
+                    }
+                    item.keyspace.tree.merge(item.key, item.value, batch_seqno)
+                }
                 ValueType::Indirection => unreachable!(),
             };
 

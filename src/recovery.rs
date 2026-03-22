@@ -92,6 +92,18 @@ pub fn recover_keyspaces(db: &Database, meta_keyspace: &MetaKeyspace) -> crate::
             recovered_config = recovered_config.with_compaction_filter_factory(f);
         }
 
+        // Install merge operator from assigner only if not already set
+        if recovered_config.merge_operator.is_none() {
+            if let Some(op) = db
+                .config
+                .merge_operator_assigner
+                .as_ref()
+                .and_then(|f| f(&keyspace_name))
+            {
+                recovered_config = recovered_config.with_merge_operator(Some(op));
+            }
+        }
+
         let base_config = lsm_tree::Config::new_with_generators(
             path,
             db.supervisor.seqno.clone(),
@@ -183,6 +195,12 @@ pub fn recover_sealed_memtables(
                     }
                     lsm_tree::ValueType::WeakTombstone => {
                         tree.remove_weak(item.key, batch.seqno);
+                    }
+                    lsm_tree::ValueType::MergeOperand => {
+                        if handle.config.merge_operator.is_none() {
+                            return Err(crate::Error::MissingMergeOperator);
+                        }
+                        tree.merge(item.key, item.value, batch.seqno);
                     }
                     lsm_tree::ValueType::Indirection => {
                         unreachable!()
