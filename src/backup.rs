@@ -27,10 +27,15 @@ fn link_or_copy(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// Copies `src` to `dst` and fsyncs the destination file to ensure durability.
+///
+/// Uses explicit `File::open` + `std::io::copy` instead of `std::fs::copy`
+/// (`CopyFileExW`) because the latter fails on Windows when the source file
+/// is held open for writing (e.g., the active journal file).
 fn copy_and_fsync(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::copy(src, dst)?;
-    let file = std::fs::File::open(dst)?;
-    file.sync_all()
+    let mut reader = std::fs::File::open(src)?;
+    let mut writer = std::fs::File::create(dst)?;
+    std::io::copy(&mut reader, &mut writer)?;
+    writer.sync_all()
 }
 
 /// LSM-tree on-disk layout:
