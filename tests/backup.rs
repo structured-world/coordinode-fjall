@@ -457,7 +457,10 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
     drop(items);
     drop(db);
 
-    // Verify backup opens and contains at least the pre-populated data
+    // Verify backup opens and contains at least the pre-populated data.
+    // We intentionally do NOT assert absence of concurrent keys — the WAL
+    // snapshot boundary depends on timing relative to the journal lock,
+    // which is not externally observable without internal hooks/barriers.
     let restored = Database::builder(&backup_path).open()?;
     let items = restored.keyspace("items", KeyspaceCreateOptions::default)?;
 
