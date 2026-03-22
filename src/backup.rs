@@ -9,8 +9,8 @@ use crate::{
 use lsm_tree::AbstractTree;
 use std::path::Path;
 
-/// Tries to hard-link `src` to `dst`, falling back to `fs::copy` if hard-linking
-/// fails (e.g., cross-device backup).
+/// Tries to hard-link `src` to `dst`, falling back to a durable copy if
+/// hard-linking fails (e.g., cross-device backup).
 fn link_or_copy(src: &Path, dst: &Path) -> std::io::Result<()> {
     match std::fs::hard_link(src, dst) {
         Ok(()) => Ok(()),
@@ -20,8 +20,7 @@ fn link_or_copy(src: &Path, dst: &Path) -> std::io::Result<()> {
                 src.display(),
                 dst.display(),
             );
-            std::fs::copy(src, dst)?;
-            Ok(())
+            copy_and_fsync(src, dst)
         }
     }
 }
@@ -47,8 +46,50 @@ fn copy_and_fsync(src: &Path, dst: &Path) -> std::io::Result<()> {
 /// Copies an LSM-tree's on-disk files into `dst_dir`:
 /// - SST and blob files are hard-linked (immutable, zero-copy safe)
 /// - Version files and manifest are copied and fsynced (small, mutable metadata)
+///
+/// The manifest (`current`) and version files are copied BEFORE snapshotting
+/// the tree version to ensure the manifest references a version ≤ the one
+/// we use for table enumeration. Any extra tables linked from a newer
+/// in-memory version are harmless (recovery cleans up orphaned tables).
 fn backup_tree(tree: &lsm_tree::AnyTree, dst_dir: &Path) -> crate::Result<()> {
     let src_dir = &tree.tree_config().path;
+
+    // Copy manifest and version files FIRST, before current_version().
+    // This guarantees the on-disk `current` file references a version ≤
+    // the one we snapshot next, so all tables it references will be
+    // included in our hard-link set. If compaction creates a newer version
+    // between the copy and the snapshot, we link extra tables (which recovery
+    // cleans up as orphans) rather than missing tables (which would be fatal).
+
+    // Copy manifest ("current" file). This is required for keyspace recovery:
+    // recovery deletes keyspaces without a `current` marker, so backing up
+    // without it would produce an incomplete backup.
+    let manifest_src = src_dir.join("current");
+    if manifest_src.try_exists()? {
+        copy_and_fsync(&manifest_src, &dst_dir.join("current"))?;
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "missing manifest file `current` in keyspace directory {}",
+                src_dir.display()
+            ),
+        )
+        .into());
+    }
+
+    // Copy and fsync version files (v0, v1, v2, ...)
+    for entry in std::fs::read_dir(src_dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        if name_str.starts_with('v') && entry.file_type()?.is_file() {
+            copy_and_fsync(&entry.path(), &dst_dir.join(&name))?;
+        }
+    }
+
+    // NOW snapshot the version — guaranteed ≥ the manifest we just copied
     let version = tree.current_version();
 
     // Create tables/ subdirectory and hard-link SST files
@@ -85,34 +126,6 @@ fn backup_tree(tree: &lsm_tree::AnyTree, dst_dir: &Path) -> crate::Result<()> {
         }
 
         fsync_directory(&blobs_dst)?;
-    }
-
-    // Copy and fsync version files (v0, v1, v2, ...) — small metadata
-    for entry in std::fs::read_dir(src_dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        if name_str.starts_with('v') && entry.file_type()?.is_file() {
-            copy_and_fsync(&entry.path(), &dst_dir.join(&name))?;
-        }
-    }
-
-    // Copy manifest ("current" file). This is required for keyspace recovery:
-    // recovery deletes keyspaces without a `current` marker, so backing up
-    // without it would produce an incomplete backup.
-    let manifest_src = src_dir.join("current");
-    if manifest_src.try_exists()? {
-        copy_and_fsync(&manifest_src, &dst_dir.join("current"))?;
-    } else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!(
-                "missing manifest file `current` in keyspace directory {}",
-                src_dir.display()
-            ),
-        )
-        .into());
     }
 
     fsync_directory(dst_dir)?;
@@ -252,8 +265,8 @@ impl Database {
     /// Copies all journal files (active + sealed) into the backup directory.
     ///
     /// Holds the journal writer lock for the duration — this is the write-pause
-    /// window. The pre-allocated journal file may be up to 64 MiB but only the
-    /// written portion contains data; the copy is bounded by actual journal size.
+    /// window. The file-based journal is pre-allocated up to 64 MiB; the full
+    /// file (including unused pre-allocated space) is copied.
     fn backup_journals(&self, backup_path: &Path) -> crate::Result<()> {
         let mut journal_writer = self.supervisor.journal.get_writer();
 
