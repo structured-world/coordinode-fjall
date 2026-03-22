@@ -622,6 +622,55 @@ impl Database {
         Ok(())
     }
 
+    /// Best-effort scan for leftover `.jnl` files when opening in noop mode.
+    ///
+    /// Logs warnings for each found file and sets `journal.leftover_detected()`.
+    /// Never fails — I/O errors are logged and skipped so that database open
+    /// is not blocked by filesystem issues in a non-critical scan.
+    fn warn_leftover_journals(db_path: &Path, journal: &Journal) {
+        match std::fs::read_dir(db_path) {
+            Err(e) => {
+                log::warn!(
+                    "Failed to scan {} for leftover journal files \
+                     while opening in noop journal mode: {e}",
+                    db_path.display(),
+                );
+            }
+            Ok(entries) => {
+                for entry_result in entries {
+                    let entry = match entry_result {
+                        Ok(e) => e,
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to read directory entry in {} while scanning \
+                                 for leftover journal files: {e}",
+                                db_path.display(),
+                            );
+                            continue;
+                        }
+                    };
+
+                    // file_type() errors are silently skipped: this scan is
+                    // best-effort and must not block database open.
+                    if entry.file_type().is_ok_and(|ft| ft.is_file())
+                        && entry
+                            .path()
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
+                    {
+                        log::warn!(
+                            "Found existing journal file {} while opening in noop \
+                             journal mode; it will be ignored. Consider removing it \
+                             or switching to JournalMode::File.",
+                            entry.path().display(),
+                        );
+                        journal.set_leftover_detected();
+                    }
+                }
+            }
+        }
+    }
+
     /// Recovers existing database from directory.
     #[expect(clippy::too_many_lines)]
     #[doc(hidden)]
@@ -643,56 +692,12 @@ impl Database {
             log::info!("Using noop journal — recovery from external WAL");
 
             let journal = Journal::noop();
-
-            // Warn about leftover .jnl files from a prior file-based run to prevent
-            // silent mode switches or accumulating unused disk space.
-            // Journal files live at config.path (DB root), not in a subdirectory.
-            match std::fs::read_dir(&config.path) {
-                Err(e) => {
-                    log::warn!(
-                        "Failed to scan {} for leftover journal files while opening \
-                         in noop journal mode: {e}",
-                        config.path.display(),
-                    );
-                }
-                Ok(entries) => {
-                    for entry_result in entries {
-                        let entry = match entry_result {
-                            Ok(e) => e,
-                            Err(e) => {
-                                log::warn!(
-                                    "Failed to read directory entry in {} while scanning \
-                                 for leftover journal files: {e}",
-                                    config.path.display(),
-                                );
-                                continue;
-                            }
-                        };
-
-                        // file_type() errors are silently skipped: this scan is
-                        // best-effort and must not block database open.
-                        if entry.file_type().is_ok_and(|ft| ft.is_file())
-                            && entry
-                                .path()
-                                .extension()
-                                .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
-                        {
-                            log::warn!(
-                                "Found existing journal file {} while opening in noop \
-                             journal mode; it will be ignored. Consider removing it \
-                             or switching to JournalMode::File.",
-                                entry.path().display(),
-                            );
-                            journal.set_leftover_detected();
-                        }
-                    }
-                }
-            }
+            Self::warn_leftover_journals(&config.path, &journal);
 
             // Noop journal reports disk_space=0 and count=1 (the active noop).
             // Leftover .jnl files from a prior file-based run are NOT counted —
-            // they belong to the old journal mode and the warning above asks
-            // the user to clean them up or switch back to JournalMode::File.
+            // they belong to the old journal mode and the warning asks the user
+            // to clean them up or switch back to JournalMode::File.
             (Arc::new(journal), vec![], true)
         } else {
             let journal_recovery = Journal::recover(
