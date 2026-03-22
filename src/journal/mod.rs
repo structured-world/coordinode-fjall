@@ -117,6 +117,9 @@ impl Journal {
     }
 
     fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+        #[cfg(feature = "__internal_whitebox")]
+        crate::drop::increment_drop_counter();
+
         Ok(Self {
             writer: Mutex::new(Box::new(Writer::from_file(path)?)),
             leftover_detected: AtomicBool::new(false),
