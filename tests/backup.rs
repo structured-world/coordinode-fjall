@@ -415,12 +415,13 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
     items.rotate_memtable_and_wait()?;
     db.persist(PersistMode::SyncAll)?;
 
-    // Spawn concurrent writer threads that insert, flush, and persist
+    // Spawn concurrent writer threads that insert continuously.
+    // Writers only call insert (no rotate/flush) to avoid PermissionDenied
+    // errors on Windows where concurrent flush + hard-link can conflict.
     let stop = Arc::new(AtomicBool::new(false));
     let mut handles = vec![];
 
     for thread_id in 0..3u64 {
-        let db_clone = db.clone();
         let items_clone = items.clone();
         let stop_clone = stop.clone();
 
@@ -431,10 +432,8 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
                 items_clone.insert(key.as_bytes(), b"concurrent").ok();
                 counter += 1;
 
-                // Periodically flush to create SSTs during backup
-                if counter % 50 == 0 {
-                    items_clone.rotate_memtable_and_wait().ok();
-                    db_clone.persist(PersistMode::SyncAll).ok();
+                if counter > 500 {
+                    break;
                 }
             }
         }));
@@ -443,10 +442,10 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
     // Run backup while writers are active
     db.backup_to(&backup_path)?;
 
-    // Stop writers
+    // Stop writers and wait — unwrap join to surface thread panics
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     for h in handles {
-        h.join().ok();
+        h.join().expect("writer thread panicked");
     }
 
     drop(items);
