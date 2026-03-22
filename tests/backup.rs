@@ -2,7 +2,7 @@ use fjall::{
     Database, JournalMode, KeyspaceCreateOptions, KvSeparationOptions, OptimisticTxDatabase,
     PersistMode, SingleWriterTxDatabase,
 };
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{atomic::AtomicBool, Arc, Barrier};
 use test_log::test;
 
 #[test]
@@ -421,23 +421,31 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
     // itself. This avoids explicit concurrent flush operations in test code,
     // which can conflict with hard-link creation on Windows.
     let stop = Arc::new(AtomicBool::new(false));
+    // Barrier ensures all writer threads have started and performed at least
+    // one insert before backup_to begins, guaranteeing write/backup overlap.
+    let barrier = Arc::new(Barrier::new(4)); // 3 writers + 1 main thread
     let mut handles = vec![];
 
     for thread_id in 0..3u64 {
         let items_clone = items.clone();
         let stop_clone = stop.clone();
+        let barrier_clone = barrier.clone();
 
         handles.push(std::thread::spawn(move || {
             let mut counter = 0u64;
             while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
                 let key = format!("t{thread_id}-{counter}");
                 // Insert may fail if DB is poisoned by concurrent flush errors
-                // (especially on Windows). Stop writing on first error — the test
-                // verifies pre-populated data survives, not write throughput.
+                // (especially on Windows). Stop writing on first error.
                 if items_clone.insert(key.as_bytes(), b"concurrent").is_err() {
                     break;
                 }
                 counter += 1;
+
+                // Signal after first insert so main thread knows writes are active
+                if counter == 1 {
+                    barrier_clone.wait();
+                }
 
                 if counter > 500 {
                     break;
@@ -445,6 +453,9 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
             }
         }));
     }
+
+    // Wait until all writers have performed at least one insert
+    barrier.wait();
 
     // Run backup while writers are active
     db.backup_to(&backup_path)?;
