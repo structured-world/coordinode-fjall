@@ -277,6 +277,76 @@ fn backup_with_deletes() -> fjall::Result<()> {
 }
 
 #[test]
+fn backup_with_sealed_journals() -> fjall::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let backup = tempfile::tempdir()?;
+    let backup_path = backup.path().join("backup");
+
+    let db = Database::builder(&folder).open()?;
+    let items = db.keyspace("items", KeyspaceCreateOptions::default)?;
+
+    // Write + rotate multiple times to create sealed journals
+    for batch in 0..3u64 {
+        for i in 0..10u64 {
+            let key = (batch * 10 + i).to_be_bytes();
+            items.insert(key, format!("batch-{batch}"))?;
+        }
+        items.rotate_memtable_and_wait()?;
+    }
+
+    // Write more data into the active journal (not yet flushed)
+    for i in 30..35u64 {
+        items.insert(i.to_be_bytes(), b"unflushed")?;
+    }
+    db.persist(PersistMode::SyncAll)?;
+    db.backup_to(&backup_path)?;
+    drop(items);
+    drop(db);
+
+    let restored = Database::builder(&backup_path).open()?;
+    let items = restored.keyspace("items", KeyspaceCreateOptions::default)?;
+    assert_eq!(items.len()?, 35);
+
+    for i in 0..30u64 {
+        assert!(
+            items.get(i.to_be_bytes())?.is_some(),
+            "flushed key {i} missing"
+        );
+    }
+    for i in 30..35u64 {
+        assert_eq!(
+            &*items.get(i.to_be_bytes())?.expect("unflushed key missing"),
+            b"unflushed",
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn backup_to_nested_nonexistent_path() -> fjall::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let backup = tempfile::tempdir()?;
+    // Parent directories don't exist yet — backup_to should create them
+    let backup_path = backup.path().join("a").join("b").join("c").join("backup");
+
+    let db = Database::builder(&folder).open()?;
+    let items = db.keyspace("items", KeyspaceCreateOptions::default)?;
+    items.insert("k", "v")?;
+    db.persist(PersistMode::SyncAll)?;
+
+    db.backup_to(&backup_path)?;
+    drop(items);
+    drop(db);
+
+    let restored = Database::builder(&backup_path).open()?;
+    let items = restored.keyspace("items", KeyspaceCreateOptions::default)?;
+    assert_eq!(&*items.get("k")?.unwrap(), b"v");
+
+    Ok(())
+}
+
+#[test]
 fn backup_noop_journal() -> fjall::Result<()> {
     let folder = tempfile::tempdir()?;
     let backup = tempfile::tempdir()?;
