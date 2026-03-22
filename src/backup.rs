@@ -292,27 +292,27 @@ impl Database {
     /// on the journal manager. The file-based journal is pre-allocated up to
     /// 64 MiB; the full file (including unused pre-allocated space) is copied.
     fn backup_journals(&self, backup_path: &Path) -> crate::Result<()> {
-        // Snapshot sealed journal paths AND copy active journal while holding
-        // the writer lock. This prevents a WAL rotation between active copy and
-        // sealed enumeration — if rotation happened, the newly sealed journal
-        // (our already-copied active) would appear in sealed_journal_paths()
-        // with post-cut appends, overwriting the good pre-cut copy.
-        let sealed_paths = {
+        {
             let mut journal_writer = self.supervisor.journal.get_writer();
 
             // Flush and fsync the active journal
             journal_writer.persist(crate::PersistMode::SyncAll)?;
 
-            // Snapshot sealed paths while writer lock prevents new rotations
+            // Hold a read lock on the journal manager while copying sealed
+            // journals, so maintenance (which takes a write lock) cannot delete
+            // them mid-copy. Acquire the read lock while the writer lock is
+            // still held to prevent a WAL rotation from adding a post-cut
+            // journal to the sealed set.
             #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
-            let sealed = self
+            let journal_manager_guard = self
                 .supervisor
                 .journal_manager
                 .read()
-                .expect("lock is poisoned")
-                .sealed_journal_paths();
+                .expect("lock is poisoned");
+            let sealed_paths = journal_manager_guard.sealed_journal_paths();
 
-            // Copy active journal file (if file-based)
+            // Copy active journal file (if file-based) while still holding the
+            // writer lock to keep the cut point stable.
             if let Some(active_path) = journal_writer.path() {
                 #[expect(
                     clippy::expect_used,
@@ -325,29 +325,28 @@ impl Database {
                 copy_and_fsync(&active_path, &backup_path.join(filename))?;
             }
 
-            sealed
-            // `journal_writer` is dropped here, releasing the writer lock.
-            // Writes can resume while sealed journals are being copied below.
-        };
+            // Release the writer lock; new writes can resume while we copy
+            // sealed journals. The journal_manager read lock remains held.
+            drop(journal_writer);
 
-        // Copy sealed journal files. The paths were captured under the writer
-        // lock so the set is frozen at the WAL cut point. Sealed journals are
-        // immutable — they cannot be modified, only deleted by maintenance.
-        // Maintenance requires a write lock on journal_manager; we hold a read
-        // lock on the path Vec (via the captured Vec, not the manager), so
-        // there is no TOCTOU race as long as maintenance hasn't run yet.
-        // If a sealed journal was deleted between snapshot and copy,
-        // copy_and_fsync will return NotFound which propagates as an error.
-        for sealed_path in &sealed_paths {
-            #[expect(
-                clippy::expect_used,
-                reason = "sealed journal paths always have a file name component"
-            )]
-            let filename = sealed_path
-                .file_name()
-                .expect("sealed journal path should have file name");
+            // Copy sealed journal files. The paths were captured under the
+            // writer lock so the set is frozen at the WAL cut point. Sealed
+            // journals are immutable — they cannot be modified, only deleted
+            // by maintenance. Maintenance requires a write lock on
+            // journal_manager; we hold a read lock on the manager, so
+            // maintenance cannot delete the snapshotted sealed journals until
+            // this loop completes.
+            for sealed_path in &sealed_paths {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "sealed journal paths always have a file name component"
+                )]
+                let filename = sealed_path
+                    .file_name()
+                    .expect("sealed journal path should have file name");
 
-            copy_and_fsync(sealed_path, &backup_path.join(filename))?;
+                copy_and_fsync(sealed_path, &backup_path.join(filename))?;
+            }
         }
 
         log::debug!("Journal files copied. Hard-linking segments...");
