@@ -80,7 +80,7 @@ pub struct CreateOptions {
 
     pub(crate) compaction_filter_factory: Option<Arc<dyn CompactionFilterFactory>>,
 
-    /// Merge operator for commutative LSM operations on this keyspace.
+    /// Merge operator used to combine values for the same key in this keyspace.
     pub(crate) merge_operator: Option<Arc<dyn MergeOperator>>,
 }
 
@@ -153,7 +153,7 @@ impl CreateOptions {
         self
     }
 
-    /// Installs a merge operator for commutative operations on this keyspace.
+    /// Installs a merge operator for this keyspace.
     ///
     /// When set, enables `Keyspace::merge` which stores partial updates
     /// (operands) that are lazily combined during reads and compaction.

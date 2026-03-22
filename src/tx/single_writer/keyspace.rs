@@ -265,6 +265,8 @@ impl SingleWriterTxKeyspace {
         key: K,
         operand: V,
     ) -> crate::Result<()> {
+        // Fail fast before creating a write transaction; BaseTransaction::merge
+        // performs the same check but this avoids unnecessary tx overhead.
         if self.inner().config.merge_operator.is_none() {
             return Err(crate::Error::MissingMergeOperator);
         }
