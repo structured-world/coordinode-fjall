@@ -38,10 +38,6 @@ use std::{
 ///     .open()
 ///     .unwrap();
 /// ```
-#[expect(
-    clippy::len_without_is_empty,
-    reason = "len() returns file size (includes pre-allocated space), not entry count — is_empty() would be misleading"
-)]
 pub trait JournalWriter: Send {
     /// Writes a single key-value item using the compact `SingleItem` format.
     ///
