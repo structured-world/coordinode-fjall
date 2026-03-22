@@ -319,6 +319,12 @@ impl BaseTransaction {
     /// # Errors
     ///
     /// Returns `MissingMergeOperator` if no merge operator is configured.
+    ///
+    /// NOTE: the transaction commit path deduplicates entries by user key,
+    /// keeping only the last write per key. Multiple merge operands for the
+    /// same key within a single transaction will therefore collapse to the
+    /// last operand. Use separate transactions or `Keyspace::merge` directly
+    /// if all operands must be preserved.
     pub(super) fn merge<K: Into<UserKey>, V: Into<UserValue>>(
         &mut self,
         keyspace: &Keyspace,

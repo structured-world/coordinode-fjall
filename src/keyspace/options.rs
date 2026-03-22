@@ -157,6 +157,10 @@ impl CreateOptions {
     ///
     /// When set, enables `Keyspace::merge` which stores partial updates
     /// (operands) that are lazily combined during reads and compaction.
+    ///
+    /// The merge operator is not persisted to disk. After reopening the
+    /// database, re-install it via [`Builder::with_merge_operator_assigner`]
+    /// so that recovery and subsequent reads can resolve merge operands.
     #[must_use]
     pub fn with_merge_operator(mut self, op: Option<Arc<dyn MergeOperator>>) -> Self {
         self.merge_operator = op;

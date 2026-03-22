@@ -165,6 +165,9 @@ impl WriteBatch {
                 ValueType::Tombstone => item.keyspace.tree.remove(item.key, batch_seqno),
                 ValueType::WeakTombstone => item.keyspace.tree.remove_weak(item.key, batch_seqno),
                 ValueType::MergeOperand => {
+                    if item.keyspace.config.merge_operator.is_none() {
+                        return Err(crate::Error::MissingMergeOperator);
+                    }
                     item.keyspace.tree.merge(item.key, item.value, batch_seqno)
                 }
                 ValueType::Indirection => unreachable!(),

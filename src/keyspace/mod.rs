@@ -978,12 +978,12 @@ impl Keyspace {
     ) -> crate::Result<()> {
         use std::sync::atomic::Ordering;
 
-        if self.config.merge_operator.is_none() {
-            return Err(crate::Error::MissingMergeOperator);
-        }
-
         if self.is_deleted.load(Ordering::Relaxed) {
             return Err(crate::Error::KeyspaceDeleted);
+        }
+
+        if self.config.merge_operator.is_none() {
+            return Err(crate::Error::MissingMergeOperator);
         }
 
         let key = key.into();
