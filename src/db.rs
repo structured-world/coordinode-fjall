@@ -647,6 +647,8 @@ impl Database {
             // Warn about leftover .jnl files from a prior file-based run to prevent
             // silent mode switches or accumulating unused disk space.
             // Journal files live at config.path (DB root), not in a subdirectory.
+            // NOTE: `\` continuation in string literals consumes leading
+            // whitespace on the next line — no extra spaces in output.
             match std::fs::read_dir(&config.path) {
                 Err(e) => {
                     log::warn!(
@@ -669,6 +671,8 @@ impl Database {
                             }
                         };
 
+                        // file_type() errors are silently skipped: this scan is
+                        // best-effort and must not block database open.
                         if entry.file_type().is_ok_and(|ft| ft.is_file())
                             && entry
                                 .path()
