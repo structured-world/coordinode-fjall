@@ -92,14 +92,16 @@ pub fn recover_keyspaces(db: &Database, meta_keyspace: &MetaKeyspace) -> crate::
             recovered_config = recovered_config.with_compaction_filter_factory(f);
         }
 
-        // Install merge operator if needed
-        if let Some(op) = db
-            .config
-            .merge_operator_assigner
-            .as_ref()
-            .and_then(|f| f(&keyspace_name))
-        {
-            recovered_config = recovered_config.with_merge_operator(Some(op));
+        // Install merge operator from assigner only if not already set
+        if recovered_config.merge_operator.is_none() {
+            if let Some(op) = db
+                .config
+                .merge_operator_assigner
+                .as_ref()
+                .and_then(|f| f(&keyspace_name))
+            {
+                recovered_config = recovered_config.with_merge_operator(Some(op));
+            }
         }
 
         let base_config = lsm_tree::Config::new_with_generators(
