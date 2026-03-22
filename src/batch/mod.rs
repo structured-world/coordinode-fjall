@@ -91,6 +91,20 @@ impl WriteBatch {
             .push(Item::new(p.clone(), key, vec![], ValueType::WeakTombstone));
     }
 
+    /// Adds a merge operand for a key.
+    ///
+    /// The operand is lazily combined with the existing value during reads
+    /// and compaction, using the merge operator registered on the keyspace.
+    pub fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &mut self,
+        p: &Keyspace,
+        key: K,
+        operand: V,
+    ) {
+        self.data
+            .push(Item::new(p.clone(), key, operand, ValueType::MergeOperand));
+    }
+
     /// Commits the batch to the [`Database`] atomically.
     ///
     /// # Errors
