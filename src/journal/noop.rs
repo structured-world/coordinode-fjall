@@ -70,3 +70,62 @@ impl JournalWriter for NoopWriter {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn noop_write_raw_returns_zero() {
+        let mut w = NoopWriter;
+        let n = w.write_raw(0, b"key", b"val", ValueType::Value, 1);
+        assert_eq!(n.ok(), Some(0));
+    }
+
+    #[test]
+    fn noop_write_batch_returns_zero() {
+        let mut w = NoopWriter;
+        assert_eq!(w.write_batch(&[], 0).ok(), Some(0));
+    }
+
+    #[test]
+    fn noop_write_clear_returns_zero() {
+        let mut w = NoopWriter;
+        assert_eq!(w.write_clear(0, 0).ok(), Some(0));
+    }
+
+    #[test]
+    fn noop_persist_succeeds() {
+        let mut w = NoopWriter;
+        assert!(w.persist(PersistMode::SyncAll).is_ok());
+        assert!(w.persist(PersistMode::SyncData).is_ok());
+        assert!(w.persist(PersistMode::Buffer).is_ok());
+    }
+
+    #[test]
+    fn noop_pos_and_len_zero() {
+        let mut w = NoopWriter;
+        assert_eq!(w.pos().ok(), Some(0));
+        assert_eq!(w.len().ok(), Some(0));
+    }
+
+    #[test]
+    fn noop_rotate_returns_error() {
+        let mut w = NoopWriter;
+        assert!(w.rotate().is_err());
+    }
+
+    #[test]
+    fn noop_set_compression_is_harmless() {
+        let mut w = NoopWriter;
+        w.set_compression(CompressionType::None, 0);
+        w.set_compression(CompressionType::Lz4, 4096);
+    }
+
+    #[test]
+    fn noop_path_is_none() {
+        let w = NoopWriter;
+        assert!(w.path().is_none());
+    }
+}

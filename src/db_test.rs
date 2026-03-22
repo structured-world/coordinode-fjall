@@ -315,3 +315,39 @@ fn noop_journal_create_and_write() -> crate::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn noop_journal_mode_switch_detects_leftover_jnl() -> crate::Result<()> {
+    use crate::{Database, JournalMode, KeyspaceCreateOptions};
+
+    let folder = tempfile::tempdir()?;
+
+    // First: create DB with file-based journal (creates .jnl files)
+    {
+        let db = Database::builder(&folder).open()?;
+        let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
+        tree.insert("x", "y")?;
+    }
+
+    // Verify .jnl file exists
+    let has_jnl = std::fs::read_dir(folder.path())?.flatten().any(|e| {
+        e.path()
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("jnl"))
+    });
+    assert!(has_jnl, "file-based journal should have created .jnl");
+
+    // Re-open with noop mode — should warn about leftover .jnl but succeed
+    {
+        let db = Database::builder(&folder)
+            .journal_mode(JournalMode::Noop)
+            .open()?;
+
+        // DB opens successfully despite leftover .jnl files
+        let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
+        tree.insert("a", "b")?;
+        assert!(db.supervisor.journal.get_reader()?.is_none());
+    }
+
+    Ok(())
+}
