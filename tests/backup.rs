@@ -421,8 +421,8 @@ fn backup_under_concurrent_writes() -> fjall::Result<()> {
     // itself. This avoids explicit concurrent flush operations in test code,
     // which can conflict with hard-link creation on Windows.
     let stop = Arc::new(AtomicBool::new(false));
-    // Barrier ensures all writer threads have started and performed at least
-    // one insert before backup_to begins, guaranteeing write/backup overlap.
+    // Barrier ensures all writer threads have started and reached a readiness
+    // point before backup_to begins, guaranteeing write/backup overlap.
     let barrier = Arc::new(Barrier::new(4)); // 3 writers + 1 main thread
     let mut handles = vec![];
 
