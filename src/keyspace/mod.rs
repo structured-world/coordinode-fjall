@@ -956,6 +956,9 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
+        // WriteGroup returns the same variant that was submitted — this is a
+        // type-system invariant, not a runtime condition. unreachable! is correct
+        // because a variant mismatch indicates a logic bug in WriteGroup itself.
         let WriteOp::Raw { key, value, .. } = op else {
             unreachable!("submitted Raw, must get Raw back");
         };
