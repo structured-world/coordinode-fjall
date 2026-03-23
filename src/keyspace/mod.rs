@@ -1017,6 +1017,7 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
+        // See insert() for why unreachable! is correct here
         let WriteOp::Raw {
             key,
             value: operand,
@@ -1090,6 +1091,7 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
+        // See insert() for why unreachable! is correct here
         let WriteOp::Raw { key, .. } = op else {
             unreachable!("submitted Raw, must get Raw back");
         };
@@ -1170,6 +1172,7 @@ impl Keyspace {
             &self.supervisor.pending_watermark,
         )?;
 
+        // See insert() for why unreachable! is correct here
         let WriteOp::Raw { key, .. } = op else {
             unreachable!("submitted Raw, must get Raw back");
         };

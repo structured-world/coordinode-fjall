@@ -212,6 +212,10 @@ impl WriteGroup {
             let writes = {
                 #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
                 let mut inner = self.inner.lock().expect("write group lock poisoned");
+                // take() is intentional: we want a fresh Vec each iteration so
+                // the previous batch's allocation is moved into `writes` and freed
+                // after delivery. Reusing capacity via drain() would hold memory
+                // from the largest-ever batch for the lifetime of the WriteGroup.
                 let pending = std::mem::take(&mut inner.pending);
                 if pending.is_empty() {
                     // Queue is empty — release leadership and exit
