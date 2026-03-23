@@ -137,6 +137,12 @@ pub(super) fn serialize_item_payload<W: Write>(
             let compressed = lz4_flex::compress(value);
             std::borrow::Cow::Owned(compressed)
         }
+
+        #[cfg(feature = "zstd")]
+        CompressionType::Zstd(level) => {
+            let compressed = zstd::bulk::compress(value, level)?;
+            std::borrow::Cow::Owned(compressed)
+        }
     };
 
     // NOTE: Truncation is okay and actually needed
@@ -288,6 +294,33 @@ fn decode_item_payload<R: Read>(
             }
 
             Slice::from(value.freeze())
+        }
+
+        #[cfg(feature = "zstd")]
+        CompressionType::Zstd(_) => {
+            #[cfg_attr(
+                target_pointer_width = "16",
+                expect(
+                    clippy::cast_possible_truncation,
+                    reason = "u32 → usize may truncate on 16-bit usize targets"
+                )
+            )]
+            let compressed_value = Slice::from_reader(reader, on_disk_value_len as usize)?;
+
+            #[cfg_attr(
+                target_pointer_width = "16",
+                expect(
+                    clippy::cast_possible_truncation,
+                    reason = "u32 → usize may truncate on 16-bit usize targets"
+                )
+            )]
+            let decompressed = zstd::bulk::decompress(&compressed_value, value_len as usize)
+                .map_err(|e| {
+                    log::error!("zstd decompression failed: {e}");
+                    crate::Error::Decompress(CompressionType::Zstd(0))
+                })?;
+
+            Slice::from(decompressed)
         }
     };
 

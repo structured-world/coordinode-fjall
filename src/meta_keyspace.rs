@@ -78,6 +78,7 @@ impl MetaKeyspace {
                 ),
                 0,
             )
+            .map(|_| ())
             .map_err(Into::into)
     }
 

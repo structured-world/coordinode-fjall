@@ -20,6 +20,8 @@ path = "src/lib.rs"
 [features]
 default = ["lz4"]
 lz4 = ["lsm-tree/lz4", "dep:lz4_flex"]
+zstd = ["lsm-tree/zstd", "dep:zstd"]
+encryption = ["lsm-tree/encryption"]
 bytes_1 = ["lsm-tree/bytes_1"]
 metrics = ["lsm-tree/metrics"]
 __internal_whitebox = []
@@ -27,16 +29,15 @@ __internal_whitebox = []
 [dependencies]
 byteorder = { package = "byteorder-lite", version = "0.1.0" }
 byteview = "~0.10.1"
-# Fork with V4 disk format + SequenceNumberGenerator trait (structured-world/lsm-tree#10).
-# Includes merge operator support (lsm-tree#28, landed 2026-03-22).
-# TODO(#24): pin to tag = "v4.0.0" once lsm-tree release management is done.
-# Pinned to rev for reproducible builds until tag exists.
-lsm-tree = { git = "https://github.com/structured-world/lsm-tree.git", rev = "b29c5b603f8a4a6599bf0134fe9f88c4ed6df34f", default-features = false, features = [] }
+# Published fork: coordinode-lsm-tree (crates.io)
+# Aliased as lsm-tree so all `use lsm_tree::` code works unchanged.
+lsm-tree = { package = "coordinode-lsm-tree", version = "4", default-features = false, features = [] }
 log = "0.4.27"
 tempfile = "3.20.0"
 dashmap = "6.1.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 lz4_flex = { version = "0.13.0", optional = true }
+zstd = { version = "0.13", optional = true, default-features = false }
 flume = { version = "0.12.0", default-features = false }
 
 [dev-dependencies]
