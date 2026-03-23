@@ -362,7 +362,7 @@ fn noop_journal_mode_switch_detects_leftover_jnl() -> crate::Result<()> {
 }
 
 #[test]
-fn remove_weak_deletes_key() -> crate::Result<()> {
+fn remove_weak_when_key_exists_deletes_key() -> crate::Result<()> {
     let folder = tempfile::tempdir()?;
     let db = Database::builder(&folder).open()?;
     let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
@@ -377,7 +377,7 @@ fn remove_weak_deletes_key() -> crate::Result<()> {
 }
 
 #[test]
-fn clear_removes_all_keys() -> crate::Result<()> {
+fn clear_when_keys_present_removes_all() -> crate::Result<()> {
     let folder = tempfile::tempdir()?;
     let db = Database::builder(&folder).open()?;
     let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
@@ -393,7 +393,7 @@ fn clear_removes_all_keys() -> crate::Result<()> {
 }
 
 #[test]
-fn batch_insert_and_remove_atomic() -> crate::Result<()> {
+fn batch_when_committed_insert_and_remove_atomic() -> crate::Result<()> {
     let folder = tempfile::tempdir()?;
     let db = Database::builder(&folder).open()?;
     let tree = db.keyspace("default", KeyspaceCreateOptions::default)?;
