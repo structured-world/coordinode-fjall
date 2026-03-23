@@ -110,6 +110,11 @@ struct PendingWrite {
 ///
 /// Result: N concurrent writers → 1 lock acquisition + 1 fsync
 /// instead of N locks + N fsyncs.
+///
+/// The leader yields the journal writer every [`MAX_BATCHES_PER_LEADER`] batches
+/// so `rotate_memtable()` can acquire it.
+const MAX_BATCHES_PER_LEADER: usize = 8;
+
 pub struct WriteGroup {
     inner: Mutex<WriteGroupInner>,
 }
@@ -184,6 +189,10 @@ impl WriteGroup {
     /// The leader holds the journal writer and keeps draining the queue until
     /// no more pending writes remain. This prevents a deadlock where followers
     /// push after the leader's initial drain but before it releases leadership.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "leader logic is inherently sequential"
+    )]
     fn run_leader(
         &self,
         journal: &Journal,
@@ -192,12 +201,6 @@ impl WriteGroup {
         leader_slot: &Arc<WriteSlot>,
         watermark: &PendingWatermark,
     ) -> crate::Result<(SeqNo, WriteOp)> {
-        // Limit how many batches one leader processes before yielding the
-        // journal writer. Without this, a hot write stream can keep the loop
-        // alive indefinitely, starving rotate_memtable() which also needs
-        // the journal writer (see keyspace/mod.rs::rotate_memtable).
-        const MAX_BATCHES_PER_LEADER: usize = 8;
-
         // Acquire journal writer (serialization point with rotate/recovery)
         let mut journal_writer = journal.get_writer();
 
@@ -232,8 +235,7 @@ impl WriteGroup {
                 pending
             };
 
-            // Re-check poisoned on each iteration — another thread (e.g. flush
-            // worker via PoisonDart) may have poisoned the DB since we last checked.
+            // Re-check poisoned — another thread may have poisoned the DB mid-loop
             if is_poisoned.load(Ordering::Acquire) {
                 Self::fail_group(&writes);
                 self.drain_fail_and_release();
@@ -303,12 +305,9 @@ impl WriteGroup {
                 }
             }
 
-            // IMPORTANT: register seqnos as pending BEFORE waking followers.
-            // This ensures the watermark can't advance past these seqnos
-            // until all memtable applies are complete.
-            // NOTE: this line is only reached if ALL journal writes + persist
-            // succeeded — error paths above return before reaching here,
-            // so no seqnos are left orphaned in the pending set on failure.
+            // Register seqnos as pending BEFORE waking followers — watermark can't
+            // advance past them until memtable applies complete. Only reached if
+            // all journal writes + persist succeeded (error paths return above).
             watermark.register(&seqnos);
 
             // Deliver results: move ops back to callers for memtable apply
@@ -326,12 +325,18 @@ impl WriteGroup {
             batches_processed += 1;
             if batches_processed >= MAX_BATCHES_PER_LEADER {
                 // Yield the journal writer so rotate_memtable() and other
-                // operations can acquire it. Remaining pending writes will
-                // be picked up by the next elected leader.
-                #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
-                let mut inner = self.inner.lock().expect("write group lock poisoned");
-                inner.leader_active = false;
-                break;
+                // operations can acquire it, but keep leadership so
+                // already-submitted followers don't hang without a leader.
+                drop(journal_writer);
+                journal_writer = journal.get_writer();
+                batches_processed = 0;
+
+                // Re-check poisoned after reacquiring
+                if is_poisoned.load(Ordering::Acquire) {
+                    drop(journal_writer);
+                    self.drain_fail_and_release();
+                    return leader_result.ok_or(crate::Error::Poisoned);
+                }
             }
         }
 
