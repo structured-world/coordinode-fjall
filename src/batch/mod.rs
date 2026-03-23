@@ -164,8 +164,12 @@ impl WriteBatch {
                 ValueType::Tombstone => item.keyspace.tree.remove(item.key, batch_seqno),
                 ValueType::WeakTombstone => item.keyspace.tree.remove_weak(item.key, batch_seqno),
                 ValueType::MergeOperand => {
-                    // Defense-in-depth: WriteBatch::merge doesn't validate at
-                    // enqueue time, so check here before writing to the tree.
+                    // Defense-in-depth: WriteBatch::merge validates at enqueue time,
+                    // so this branch is unreachable in normal use. If hit, earlier
+                    // items in the batch are already applied — rolling them back would
+                    // require memtable-level undo which is out of scope for this PR.
+                    // The aborted() call unblocks the watermark without claiming
+                    // visibility; recovery replays the full journaled batch.
                     if item.keyspace.config.merge_operator.is_none() {
                         self.db.supervisor.pending_watermark.aborted(batch_seqno);
                         return Err(crate::Error::MissingMergeOperator);

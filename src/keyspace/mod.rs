@@ -998,38 +998,34 @@ impl Keyspace {
         let key = key.into();
         let operand = operand.into();
 
-        let mut journal_writer = self.supervisor.journal.get_writer();
+        let persist_mode = self.persist_mode();
 
-        // IMPORTANT: Check the poisoned flag after getting journal mutex, otherwise TOCTOU
-        if self.is_poisoned.load(Ordering::Relaxed) {
-            return Err(crate::Error::Poisoned);
-        }
-
-        let seqno = self.supervisor.seqno.next();
-
-        journal_writer.write_raw(
-            self.id,
-            &key,
-            &operand,
-            lsm_tree::ValueType::MergeOperand,
-            seqno,
+        let (seqno, op) = self.supervisor.write_group.submit(
+            WriteOp::Raw {
+                keyspace_id: self.id,
+                key,
+                value: operand,
+                value_type: lsm_tree::ValueType::MergeOperand,
+            },
+            persist_mode,
+            &self.supervisor.journal,
+            &self.supervisor.seqno,
+            &self.is_poisoned,
+            &self.supervisor.pending_watermark,
         )?;
 
-        if !self.config.manual_journal_persist {
-            journal_writer
-                .persist(crate::PersistMode::Buffer)
-                .map_err(|e| {
-                    log::error!("persist failed, which is a FATAL, and possibly hardware-related, failure: {e:?}");
-                    self.is_poisoned.store(true, Ordering::Relaxed);
-                    e
-                })?;
-        }
+        let WriteOp::Raw {
+            key,
+            value: operand,
+            ..
+        } = op
+        else {
+            unreachable!("submitted Raw, must get Raw back");
+        };
 
         let (item_size, memtable_size) = self.tree.merge(key, operand, seqno);
 
-        self.supervisor.snapshot_tracker.publish(seqno);
-
-        drop(journal_writer);
+        self.supervisor.pending_watermark.applied(seqno);
 
         self.supervisor.write_buffer_size.allocate(item_size);
         self.maintenance(memtable_size);
