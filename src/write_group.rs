@@ -412,7 +412,12 @@ impl PendingWatermark {
     pub(crate) fn aborted(&self, seqno: SeqNo) {
         #[expect(clippy::expect_used, reason = "poisoned lock is unrecoverable")]
         let mut inner = self.inner.lock().expect("watermark lock poisoned");
-        inner.pending.remove(&seqno);
+        let removed = inner.pending.remove(&seqno);
+        if !removed {
+            log::error!(
+                "PendingWatermark::aborted called with unknown or already-removed seqno: {seqno}"
+            );
+        }
         // Do NOT publish — the data for this seqno is not in the memtable.
         // The watermark will advance past this seqno only when a later
         // seqno's applied() finds pending empty or min > this seqno.
