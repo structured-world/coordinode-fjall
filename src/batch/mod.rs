@@ -173,7 +173,7 @@ impl WriteBatch {
                 ValueType::Value => item.keyspace.tree.insert(item.key, item.value, batch_seqno),
                 ValueType::Tombstone => item.keyspace.tree.remove(item.key, batch_seqno),
                 ValueType::WeakTombstone => item.keyspace.tree.remove_weak(item.key, batch_seqno),
-                // SAFETY: merge_operator validated in the pre-journal check above
+                // NOTE: merge_operator validated in the pre-journal check above
                 ValueType::MergeOperand => {
                     item.keyspace.tree.merge(item.key, item.value, batch_seqno)
                 }

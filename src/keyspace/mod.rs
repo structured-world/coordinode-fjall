@@ -959,6 +959,8 @@ impl Keyspace {
         // WriteGroup returns the same variant that was submitted — this is a
         // type-system invariant, not a runtime condition. unreachable! is correct
         // because a variant mismatch indicates a logic bug in WriteGroup itself.
+        // No #[expect(clippy::missing_panics_doc)] needed — that lint is not
+        // enabled in this crate (pedantic, not deny).
         let WriteOp::Raw { key, value, .. } = op else {
             unreachable!("submitted Raw, must get Raw back");
         };
