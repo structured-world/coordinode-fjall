@@ -17,6 +17,12 @@ impl Workload for MultiKeyspace {
         config: &BenchConfig,
         reporter: &mut Reporter,
     ) -> fjall::Result<()> {
+        if config.keyspaces == 0 {
+            return Err(fjall::Error::Io(std::io::Error::other(
+                "multi_keyspace: --keyspaces must be > 0",
+            )));
+        }
+
         let tmpdir = tempfile::tempdir().map_err(|e| fjall::Error::Io(std::io::Error::other(e)))?;
 
         let mut builder = Database::builder(tmpdir.path()).cache_size(config.cache_size);

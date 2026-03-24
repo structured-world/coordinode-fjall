@@ -21,8 +21,10 @@ impl Workload for ReadSeq {
 
         reporter.start();
 
-        for guard in keyspace.iter() {
+        let mut iter = keyspace.iter();
+        loop {
             let t = Instant::now();
+            let Some(guard) = iter.next() else { break };
             let _value = guard.value()?;
             reporter.record_duration(t.elapsed());
 

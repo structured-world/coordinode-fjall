@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 fjall = { package = "coordinode-fjall", path = "../..", features = ["lz4", "zstd"] }
-lsm-tree = { package = "coordinode-lsm-tree", version = "4", features = ["lz4", "zstd"] }
 clap = { version = "4", features = ["derive"] }
 hdrhistogram = "7"
 rand = "0.9"

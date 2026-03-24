@@ -20,10 +20,21 @@ impl Workload for TxnCommit {
         // Create a dedicated OCC database — the shared Database doesn't support
         // optimistic transactions.
         let tmpdir = tempfile::tempdir().map_err(|e| fjall::Error::Io(std::io::Error::other(e)))?;
-        let tx_db = OptimisticTxDatabase::builder(tmpdir.path())
-            .cache_size(config.cache_size)
-            .open()?;
-        let ks = tx_db.keyspace("bench", fjall::KeyspaceCreateOptions::default)?;
+        let mut builder =
+            OptimisticTxDatabase::builder(tmpdir.path()).cache_size(config.cache_size);
+
+        if config.disable_wal {
+            builder = builder.journal_mode(fjall::JournalMode::Noop);
+        }
+
+        let tx_db = builder.open()?;
+
+        let compression_policy =
+            fjall::config::CompressionPolicy::all(config.compression_type.to_fjall());
+        let ks = tx_db.keyspace("bench", || {
+            fjall::KeyspaceCreateOptions::default()
+                .data_block_compression_policy(compression_policy)
+        })?;
 
         // Prefill some keys so transactions do read-modify-write.
         let prefill = config.num.min(1000);

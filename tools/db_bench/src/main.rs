@@ -70,6 +70,8 @@ struct Cli {
     histogram: bool,
 
     /// Database directory path. If not set, a temporary directory is used.
+    /// When set, the directory is reused across benchmarks without reset
+    /// (similar to RocksDB's --use_existing_db behavior).
     #[arg(long)]
     db: Option<PathBuf>,
 }
@@ -221,14 +223,24 @@ fn run_single(
 
     workload.run(&db, &keyspace, bench_config, &mut reporter)?;
 
-    let entry_size = bench_config.entry_size();
+    // Recovery measures reopen latency, not data throughput — suppress MB/s.
+    let entry_size = if benchmark_name == "recovery" {
+        0
+    } else {
+        bench_config.entry_size()
+    };
 
     if cli.github_json {
         let s = reporter.summary(entry_size);
+        let unit = if benchmark_name == "recovery" {
+            "reopens/sec"
+        } else {
+            "ops/sec"
+        };
         github_entries.push(serde_json::json!({
             "name": benchmark_name,
             "value": s.ops_per_sec,
-            "unit": "ops/sec",
+            "unit": unit,
             "extra": format!(
                 "P50: {:.1}us | P99: {:.1}us | P99.9: {:.1}us\nthreads: {} | elapsed: {:.2}s | num: {} | wal: {}",
                 s.p50, s.p99, s.p999, cli.threads, s.secs, cli.num, wal_status,
