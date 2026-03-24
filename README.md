@@ -29,9 +29,6 @@
 > Based on [fjall-rs/fjall](https://github.com/fjall-rs/fjall). We contribute patches upstream and maintain additional features needed for CoordiNode (deadlock fixes, custom sequence number generators, journal optimizations, zstd compression).
 
 <p align="center">
-  <a href="https://discord.com/invite/HvYGp4NFFk">
-    <img src="https://img.shields.io/discord/1240426554111164486" alt="Discord" />
-  </a>
   <a href="https://bsky.app/profile/fjallrs.bsky.social">
     <img src="https://img.shields.io/badge/bluesky-blue" alt="Bluesky" />
   </a>
@@ -55,16 +52,6 @@ It is not:
 
 - A standalone database server
 - A relational or wide-column database: it has no built-in notion of columns or query language
-
-## Sponsors
-
-<a href="https://sqlsync.dev">
-  <picture>
-    <source width="240" alt="Orbitinghail" media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail.svg" />
-    <source width="240" alt="Orbitinghail" media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail_dark.svg" />
-    <img width="240" alt="Orbitinghail" src="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail_dark.svg" />
-  </picture>
-</a>
 
 ## Basic usage
 
