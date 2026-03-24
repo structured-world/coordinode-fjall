@@ -46,8 +46,7 @@ impl Oracle {
 
         self.snapshot_tracker.close_raw(instant);
 
-        // TODO: This can be expensive and should probably be done in a background worker, or a after a memtable rotation
-        let safe_to_gc = self.snapshot_tracker.get_seqno_safe_to_gc();
+        let safe_to_gc = self.snapshot_tracker.fresh_seqno_safe_to_gc();
         committed_txns.retain(|ts, _| *ts > safe_to_gc);
 
         if conflicted {
@@ -104,17 +103,19 @@ mod tests {
 
         let part = db.keyspace("foo", KeyspaceCreateOptions::default)?;
 
-        for _ in 0..10_000 {
+        for _ in 0..200 {
             run_tx(&db, &part).unwrap();
         }
 
-        assert!(dbg!(db.oracle.write_serialize_lock.lock().unwrap().len()) < 10_000);
+        // With fresh watermark computation, committed_txns is cleaned on every
+        // conflicted-commit cycle.  At most a handful of entries survive.
+        assert!(dbg!(db.oracle.write_serialize_lock.lock().unwrap().len()) < 10);
 
-        for _ in 0..10_000 {
+        for _ in 0..200 {
             run_tx(&db, &part).unwrap();
         }
 
-        assert!(dbg!(db.oracle.write_serialize_lock.lock().unwrap().len()) < 10_000);
+        assert!(dbg!(db.oracle.write_serialize_lock.lock().unwrap().len()) < 10);
 
         Ok(())
     }

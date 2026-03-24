@@ -129,6 +129,8 @@ pub(super) fn serialize_item_payload<W: Write>(
 
     compression.encode_into(writer)?;
 
+    // Exhaustive: CompressionType variants are feature-gated in lsm-tree,
+    // so disabled features remove both the variant and the arm.
     let compressed_value = match compression {
         CompressionType::None => std::borrow::Cow::Borrowed(value),
 
@@ -143,8 +145,6 @@ pub(super) fn serialize_item_payload<W: Write>(
             let compressed = zstd::bulk::compress(value, level)?;
             std::borrow::Cow::Owned(compressed)
         }
-
-        _ => std::borrow::Cow::Borrowed(value),
     };
 
     // NOTE: Truncation is okay and actually needed
@@ -245,6 +245,8 @@ fn decode_item_payload<R: Read>(
 
     let key = Slice::from_reader(reader, usize::from(key_len))?;
 
+    // Exhaustive: CompressionType variants are feature-gated in lsm-tree,
+    // so disabled features remove both the variant and the arm.
     let value = match compression {
         CompressionType::None => {
             debug_assert_eq!(value_len, on_disk_value_len);
@@ -323,18 +325,6 @@ fn decode_item_payload<R: Read>(
                 })?;
 
             Slice::from(decompressed)
-        }
-
-        _ =>
-        {
-            #[cfg_attr(
-                target_pointer_width = "16",
-                expect(
-                    clippy::cast_possible_truncation,
-                    reason = "u32 → usize may truncate on 16-bit usize targets"
-                )
-            )]
-            Slice::from_reader(reader, on_disk_value_len as usize)?
         }
     };
 

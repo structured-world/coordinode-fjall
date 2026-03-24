@@ -109,6 +109,12 @@ impl SnapshotTracker {
 
         self.data.alter(&instant, |_, v| v.saturating_sub(1));
 
+        // Eagerly remove entry when refcount reaches 0 so that `data` only
+        // contains genuinely active snapshots.  This lets callers cheaply
+        // detect "no active snapshots" via `data.is_empty()` and keeps the
+        // periodic `gc()` fast because there are fewer stale entries.
+        self.data.remove_if(&instant, |_, v| *v == 0);
+
         let freed = self
             .freed_count
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
@@ -131,6 +137,29 @@ impl SnapshotTracker {
     pub fn get_seqno_safe_to_gc(&self) -> SeqNo {
         self.lowest_freed_instant
             .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Returns a fresh safe-to-gc watermark based on current active snapshots.
+    ///
+    /// Unlike [`get_seqno_safe_to_gc`] which relies on periodic `gc()` to
+    /// update `lowest_freed_instant`, this method checks the live state of
+    /// the snapshot data.  With eager removal in `close_raw`, `data` only
+    /// contains entries with refcount > 0 (active snapshots), so this is
+    /// both accurate and cheap (O(active snapshots)).
+    pub(crate) fn fresh_seqno_safe_to_gc(&self) -> SeqNo {
+        if self.data.is_empty() {
+            // No active snapshots — everything up to the current seqno is
+            // safe to garbage-collect.
+            return self.seqno.get().saturating_sub(1);
+        }
+
+        // Find the oldest active snapshot; everything below it is reclaimable.
+        self.data
+            .iter()
+            .map(|r| *r.key())
+            .min()
+            .unwrap_or_else(|| self.seqno.get())
+            .saturating_sub(1)
     }
 
     pub(crate) fn pullup(&self) {

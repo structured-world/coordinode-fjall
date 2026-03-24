@@ -70,8 +70,12 @@
 //! # Ok::<_, fjall::Error>(())
 //! ```
 
-#![doc(html_logo_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png")]
-#![doc(html_favicon_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png")]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png"
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png"
+)]
 #![deny(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
