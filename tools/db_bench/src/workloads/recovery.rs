@@ -54,7 +54,9 @@ impl Workload for Recovery {
                 config.entry_size(),
             );
         }
-        // Database dropped — closed cleanly.
+        // Database dropped — closed cleanly after SyncAll.
+        // This measures cold-start open time (metadata + manifest loading),
+        // not crash-recovery WAL replay. Clean shutdown flushes all memtables.
 
         // Phase 2: measure reopen time (10 iterations for stability).
         let iterations = 10u64;

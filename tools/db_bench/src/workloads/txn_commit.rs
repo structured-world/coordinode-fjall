@@ -47,6 +47,9 @@ impl Workload for TxnCommit {
         let mut committed = 0u64;
         let mut conflicts = 0u64;
 
+        // Single-threaded: measures OCC commit overhead without contention.
+        // Conflict rate will be 0% — use --threads > 1 for contention testing
+        // (not yet implemented; tracked as future work).
         reporter.start();
 
         for i in 0..config.num {

@@ -34,8 +34,15 @@ impl Workload for MultiKeyspace {
         let db = builder.open()?;
 
         let num_keyspaces = config.keyspaces;
+        let compression_policy =
+            fjall::config::CompressionPolicy::all(config.compression_type.to_fjall());
         let keyspaces: Vec<Keyspace> = (0..num_keyspaces)
-            .map(|i| db.keyspace(&format!("ks_{i}"), fjall::KeyspaceCreateOptions::default))
+            .map(|i| {
+                db.keyspace(&format!("ks_{i}"), || {
+                    fjall::KeyspaceCreateOptions::default()
+                        .data_block_compression_policy(compression_policy.clone())
+                })
+            })
             .collect::<fjall::Result<Vec<_>>>()?;
 
         reporter.start();
