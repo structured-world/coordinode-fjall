@@ -125,6 +125,11 @@ fn main() {
         std::process::exit(1);
     }
 
+    if cli.json && cli.github_json {
+        eprintln!("Error: --json and --github_json are mutually exclusive");
+        std::process::exit(1);
+    }
+
     if cli.json && (cli.benchmarks.contains(',') || cli.benchmarks == "all") {
         eprintln!("Error: --json does not support multiple benchmarks; use --github_json");
         std::process::exit(1);

@@ -21,10 +21,16 @@ impl Workload for ReadWhileWriting {
 
         // RocksDB convention: --threads=N gives N readers + 1 background writer.
         // Minimum 1 reader + 1 writer = 2 threads.
-        let reader_count = config.threads.max(1);
+        let requested = config.threads.max(1);
         let max_readers = usize::try_from(config.num.max(1)).unwrap_or(usize::MAX);
         // Cap so reader_count + 1 (writer) cannot overflow usize.
-        let reader_count = reader_count.min(max_readers).min(usize::MAX - 1);
+        let reader_count = requested.min(max_readers).min(usize::MAX - 1);
+        if reader_count < requested {
+            eprintln!(
+                "readwhilewriting: capped readers from {} to {} (--num too small for requested threads)",
+                requested, reader_count,
+            );
+        }
         let total_threads = reader_count + 1;
 
         let base_ops = config.num / reader_count as u64;
@@ -88,7 +94,9 @@ impl Workload for ReadWhileWriting {
             #[expect(clippy::expect_used, reason = "writer panic is unrecoverable")]
             writer_handle.join().expect("writer thread panicked");
 
-            // Stop after writer joined so elapsed covers the full concurrent window.
+            // Intentionally stop after writer join — elapsed must cover the full
+            // concurrent read+write window. Stopping after readers but before writer
+            // would undercount elapsed when the writer is slower, inflating ops/sec.
             reporter.stop();
 
             Ok(())
