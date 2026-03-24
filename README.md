@@ -4,18 +4,25 @@
 
 <p align="center">
   <a href="https://github.com/structured-world/coordinode-fjall/actions/workflows/coordinode-ci.yml">
-    <img src="https://github.com/structured-world/coordinode-fjall/actions/workflows/coordinode-ci.yml/badge.svg" alt="CoordiNode CI" />
+    <img src="https://github.com/structured-world/coordinode-fjall/actions/workflows/coordinode-ci.yml/badge.svg" alt="CI" />
   </a>
-  <a href="https://github.com/fjall-rs/fjall/actions/workflows/test.yml">
-    <img src="https://github.com/fjall-rs/fjall/actions/workflows/test.yml/badge.svg" alt="Upstream CI" />
+  <a href="https://codecov.io/gh/structured-world/coordinode-fjall">
+    <img src="https://codecov.io/gh/structured-world/coordinode-fjall/graph/badge.svg" alt="codecov" />
   </a>
-  <a href="https://docs.rs/coordinode-fjall">
-    <img src="https://img.shields.io/docsrs/coordinode-fjall?color=green" alt="docs.rs" />
+  <a href="https://structured-world.github.io/coordinode-fjall/dev/bench/">
+    <img src="https://img.shields.io/badge/benchmarks-dashboard-orange" alt="Benchmarks" />
   </a>
   <a href="https://crates.io/crates/coordinode-fjall">
     <img src="https://img.shields.io/crates/v/coordinode-fjall?color=blue" alt="Crates.io" />
   </a>
+  <a href="https://docs.rs/coordinode-fjall">
+    <img src="https://img.shields.io/docsrs/coordinode-fjall?color=green" alt="docs.rs" />
+  </a>
   <img src="https://img.shields.io/badge/MSRV-1.90.0-blue" alt="MSRV" />
+  <a href="https://deps.rs/repo/github/structured-world/coordinode-fjall">
+    <img src="https://deps.rs/repo/github/structured-world/coordinode-fjall/status.svg" alt="dependency status" />
+  </a>
+  <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License" />
 </p>
 
 > **Maintained fork** by [Structured World Foundation](https://sw.foundation) for the [CoordiNode](https://github.com/structured-world/coordinode) database engine.
@@ -191,6 +198,18 @@ For the underlying LSM-tree implementation, see: <https://crates.io/crates/lsm-t
 ## Examples
 
 [See here](https://github.com/fjall-rs/fjall/tree/main/examples) for practical examples.
+
+## Benchmarks
+
+Continuous benchmarks run on every merge to `main`. Results are published to the
+[benchmark dashboard](https://structured-world.github.io/coordinode-fjall/dev/bench/).
+PRs that regress performance by >15% trigger an alert; >25% regression fails CI.
+
+To run benchmarks locally:
+
+```bash
+cargo bench --features lz4
+```
 
 ## Contributing
 
