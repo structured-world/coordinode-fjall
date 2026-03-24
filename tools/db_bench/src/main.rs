@@ -268,9 +268,16 @@ fn run_single(
         };
         println!("{}", reporter.to_json(benchmark_name, &json_config));
     } else {
-        reporter.print_human(benchmark_name, entry_size);
-        if cli.histogram {
-            reporter.print_histogram();
+        let s = reporter.summary(entry_size);
+        if s.ops == 0 {
+            eprintln!(
+                "workload '{benchmark_name}' recorded 0 operations — skipping throughput summary"
+            );
+        } else {
+            reporter.print_human(benchmark_name, entry_size);
+            if cli.histogram {
+                reporter.print_histogram();
+            }
         }
     }
 
