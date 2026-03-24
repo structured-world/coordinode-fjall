@@ -163,7 +163,7 @@ fn main() {
         cli.key_size,
         cli.value_size,
         cli.num,
-        cli.num as f64 * (cli.key_size + cli.value_size) as f64 / (1024.0 * 1024.0),
+        cli.num as f64 * (cli.key_size as f64 + cli.value_size as f64) / (1024.0 * 1024.0),
         cli.compression_type,
         wal_status,
         sync_status,

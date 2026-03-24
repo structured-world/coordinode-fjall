@@ -48,7 +48,7 @@ pub struct BenchConfig {
 impl BenchConfig {
     /// Bytes per key-value pair (for throughput calculation).
     pub fn entry_size(&self) -> usize {
-        self.key_size + self.value_size
+        self.key_size.saturating_add(self.value_size)
     }
 }
 
