@@ -21,7 +21,7 @@ impl Workload for TxnCommit {
         // optimistic transactions.
         let tmpdir = tempfile::tempdir().map_err(|e| fjall::Error::Io(std::io::Error::other(e)))?;
         let tx_db = OptimisticTxDatabase::builder(tmpdir.path())
-            .cache_size(config.cache_mb * 1024 * 1024)
+            .cache_size(config.cache_size)
             .open()?;
         let ks = tx_db.keyspace("bench", fjall::KeyspaceCreateOptions::default)?;
 

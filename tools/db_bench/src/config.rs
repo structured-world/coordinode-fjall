@@ -35,8 +35,8 @@ pub struct BenchConfig {
     pub key_size: usize,
     pub value_size: usize,
     pub threads: usize,
-    pub cache_mb: u64,
-    pub compression: Compression,
+    pub cache_size: u64,
+    pub compression_type: Compression,
     pub disable_wal: bool,
     pub sync: bool,
     pub keyspaces: usize,
@@ -54,11 +54,10 @@ pub fn create_db(
     path: &Path,
     config: &BenchConfig,
 ) -> fjall::Result<(fjall::Database, fjall::Keyspace)> {
-    let cache_bytes = config.cache_mb * 1024 * 1024;
+    let compression_policy =
+        fjall::config::CompressionPolicy::all(config.compression_type.to_fjall());
 
-    let compression_policy = fjall::config::CompressionPolicy::all(config.compression.to_fjall());
-
-    let mut builder = fjall::Database::builder(path).cache_size(cache_bytes);
+    let mut builder = fjall::Database::builder(path).cache_size(config.cache_size);
 
     if config.disable_wal {
         builder = builder.journal_mode(JournalMode::Noop);

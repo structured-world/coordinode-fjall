@@ -12,7 +12,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "db_bench",
-    about = "fjall benchmark suite (RocksDB db_bench compatible output)"
+    about = "fjall benchmark suite (RocksDB db_bench compatible output)",
+    // RocksDB uses snake_case flags (--key_size, --value_size, --cache_size, etc.)
+    rename_all = "snake_case"
 )]
 struct Cli {
     /// Comma-separated list of benchmarks to run. Use "all" to run every workload.
@@ -35,13 +37,13 @@ struct Cli {
     #[arg(long, default_value = "1")]
     threads: usize,
 
-    /// Block cache size in MB.
-    #[arg(long, default_value = "64")]
-    cache_mb: u64,
+    /// Block cache size in bytes (RocksDB compatible). Default: 64MB.
+    #[arg(long, default_value = "67108864")]
+    cache_size: u64,
 
-    /// Compression type: none, lz4, zstd.
+    /// Compression type: none, lz4, zstd (RocksDB compatible flag name).
     #[arg(long, default_value = "none")]
-    compression: Compression,
+    compression_type: Compression,
 
     /// Bypass fjall journal (WAL). Default: false (WAL enabled, matching RocksDB default).
     #[arg(long)]
@@ -98,8 +100,8 @@ fn main() {
         key_size: cli.key_size,
         value_size: cli.value_size,
         threads: cli.threads,
-        cache_mb: cli.cache_mb,
-        compression: cli.compression,
+        cache_size: cli.cache_size,
+        compression_type: cli.compression_type,
         disable_wal: cli.disable_wal,
         sync: cli.sync,
         keyspaces: cli.keyspaces,
@@ -149,7 +151,7 @@ fn main() {
         cli.value_size,
         cli.num,
         cli.num as f64 * (cli.key_size + cli.value_size) as f64 / (1024.0 * 1024.0),
-        cli.compression,
+        cli.compression_type,
         wal_status,
         sync_status,
         cli.threads,
@@ -207,8 +209,8 @@ fn run_single(
     let sync_status = if cli.sync { "ON" } else { "OFF" };
     eprintln!("=== db_bench: {benchmark_name} ===");
     eprintln!(
-        "num={} key_size={} value_size={} threads={} cache={}MB wal={} sync={}",
-        cli.num, cli.key_size, cli.value_size, cli.threads, cli.cache_mb, wal_status, sync_status,
+        "num={} key_size={} value_size={} threads={} cache_size={} wal={} sync={}",
+        cli.num, cli.key_size, cli.value_size, cli.threads, cli.cache_size, wal_status, sync_status,
     );
 
     let (db, keyspace) = config::create_db(&db_path, bench_config)?;
@@ -239,7 +241,7 @@ fn run_single(
             value_size: cli.value_size,
             entry_size,
             threads: cli.threads,
-            compression: cli.compression.to_string(),
+            compression: cli.compression_type.to_string(),
             wal: !cli.disable_wal,
         };
         println!("{}", reporter.to_json(benchmark_name, &json_config));

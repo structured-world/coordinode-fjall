@@ -31,7 +31,7 @@ impl Workload for Recovery {
         // Phase 1: populate database.
         {
             let db = Database::builder(&path)
-                .cache_size(config.cache_mb * 1024 * 1024)
+                .cache_size(config.cache_size)
                 .open()?;
             let ks = db.keyspace("bench", fjall::KeyspaceCreateOptions::default)?;
 
@@ -59,7 +59,7 @@ impl Workload for Recovery {
         for _ in 0..iterations {
             let t = Instant::now();
             let db = Database::builder(&path)
-                .cache_size(config.cache_mb * 1024 * 1024)
+                .cache_size(config.cache_size)
                 .open()?;
             reporter.record_duration(t.elapsed());
             // Close between iterations.

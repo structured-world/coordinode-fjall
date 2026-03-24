@@ -19,8 +19,7 @@ impl Workload for MultiKeyspace {
     ) -> fjall::Result<()> {
         let tmpdir = tempfile::tempdir().map_err(|e| fjall::Error::Io(std::io::Error::other(e)))?;
 
-        let mut builder =
-            Database::builder(tmpdir.path()).cache_size(config.cache_mb * 1024 * 1024);
+        let mut builder = Database::builder(tmpdir.path()).cache_size(config.cache_size);
 
         if config.disable_wal {
             builder = builder.journal_mode(fjall::JournalMode::Noop);
