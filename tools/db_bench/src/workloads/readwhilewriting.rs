@@ -63,9 +63,10 @@ impl Workload for ReadWhileWriting {
                 for _ in 0..config.num {
                     let key = make_random_key(config.key_size);
                     let value = make_value(config.value_size);
-                    // Ignore write errors in background writer to avoid
-                    // blocking reader measurements.
-                    let _ = keyspace.insert(key, value);
+                    if let Err(e) = keyspace.insert(key, value) {
+                        eprintln!("readwhilewriting: background writer error: {e}");
+                        break;
+                    }
                 }
             });
 

@@ -5,9 +5,9 @@ use crate::workloads::Workload;
 use fjall::{Database, Keyspace, PersistMode};
 use std::time::Instant;
 
-/// Measures database recovery (reopen) time.
-/// Write N entries → close → measure reopen time.
-/// This benchmarks WAL replay speed — the crash recovery SLA.
+/// Measures database cold-start reopen time after clean shutdown.
+/// Write N entries → persist → close → measure reopen latency.
+/// This benchmarks metadata/manifest loading, not crash-recovery WAL replay.
 pub struct Recovery;
 
 impl Workload for Recovery {

@@ -48,6 +48,6 @@ jobs:
           alert-threshold: "115%"
           fail-threshold: "125%"
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
-          # Store data for PRs without pushing (compare only)
+          # Only persist benchmark data on main pushes (PRs compare against existing baseline)
           save-data-file: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           benchmark-data-dir-path: dev/bench
