@@ -24,6 +24,8 @@ impl Workload for SeekRandom {
 
         for _ in 0..config.num {
             let idx: u64 = rng.random_range(0..config.num);
+            // Allocation is outside the timed region. range() takes ownership
+            // of the key, so fill_sequential_key can't be used here.
             let key = make_sequential_key(idx, config.key_size);
 
             let t = Instant::now();

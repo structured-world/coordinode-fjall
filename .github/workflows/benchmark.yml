@@ -48,7 +48,8 @@ jobs:
           # On PRs, comment with comparison against baseline
           comment-on-alert: true
           alert-comment-cc-users: "@polaz"
-          # 15% regression = alert, 25% = fail
+          # PRs: fail at 15% regression (fail-on-alert). Main: alert-only at 15%.
+          # fail-threshold (25%) acts as an absolute ceiling on main pushes.
           alert-threshold: "115%"
           fail-threshold: "125%"
           fail-on-alert: ${{ github.event_name == 'pull_request' }}

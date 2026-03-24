@@ -24,6 +24,8 @@ impl Workload for Overwrite {
 
         for _ in 0..config.num {
             let idx: u64 = rng.random_range(0..config.num);
+            // Allocation outside timed region. insert() takes Into<UserKey>,
+            // so we can't reuse a buffer without cloning anyway.
             let key = make_sequential_key(idx, config.key_size);
             let value = make_value(config.value_size);
 
