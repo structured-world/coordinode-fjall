@@ -23,6 +23,8 @@ impl Workload for MultiKeyspace {
             )));
         }
 
+        // Own tmpdir: needs multiple keyspaces on a fresh database, incompatible
+        // with the single shared keyspace from run_single().
         let tmpdir = tempfile::tempdir()?;
 
         let mut builder = Database::builder(tmpdir.path()).cache_size(config.cache_size);

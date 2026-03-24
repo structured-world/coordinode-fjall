@@ -25,6 +25,8 @@ impl Workload for Recovery {
             return Ok(());
         }
 
+        // Own tmpdir required: recovery needs to close and reopen the database,
+        // which is incompatible with the shared db/keyspace from run_single().
         let tmpdir = tempfile::tempdir()?;
         let path = tmpdir.path().to_path_buf();
 

@@ -30,6 +30,8 @@ impl Workload for ReadWhileWriting {
         let remainder = config.num % reader_count as u64;
         let barrier = Barrier::new(total_threads);
 
+        // Timer starts before spawn — spawn overhead is negligible (<1ms)
+        // compared to benchmark duration. Matches RocksDB db_bench and lsm-tree.
         reporter.start();
 
         let scope_result: fjall::Result<()> = std::thread::scope(|s| {
