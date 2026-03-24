@@ -66,6 +66,9 @@ impl Workload for ReadWhileWriting {
                 for _ in 0..config.num {
                     let key = make_random_key(config.key_size);
                     let value = make_value(config.value_size);
+                    // Writer errors are logged but don't fail the benchmark —
+                    // this matches RocksDB where BGWriter errors are non-fatal.
+                    // Reader throughput is the measured metric, writer is pressure only.
                     if let Err(e) = keyspace.insert(key, value) {
                         eprintln!("readwhilewriting: background writer error: {e}");
                         break;
