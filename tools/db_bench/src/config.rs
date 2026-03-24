@@ -2,6 +2,8 @@ use clap::ValueEnum;
 use fjall::{CompressionType, JournalMode};
 use std::path::Path;
 
+// db_bench Cargo.toml enables both lz4 and zstd features unconditionally —
+// all variants are always available. No cfg-gating needed for a standalone tool.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Compression {
     None,
@@ -60,6 +62,9 @@ pub fn create_db(
 
     let mut builder = fjall::Database::builder(path).cache_size(config.cache_size);
 
+    // JournalMode::Noop disables fjall's WAL I/O while keeping the full fjall
+    // stack (keyspace routing, write group, etc.). This isolates WAL overhead
+    // specifically. For truly raw lsm-tree numbers, use lsm-tree's own db_bench.
     if config.disable_wal {
         builder = builder.journal_mode(JournalMode::Noop);
     }

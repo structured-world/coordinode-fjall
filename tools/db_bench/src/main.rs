@@ -49,7 +49,8 @@ struct Cli {
     #[arg(long)]
     disable_wal: bool,
 
-    /// fsync per write (matches RocksDB --sync flag).
+    /// [NOT YET WIRED] fsync per write (matches RocksDB --sync flag).
+    /// Parsed for CLI compatibility but currently has no effect.
     #[arg(long)]
     sync: bool,
 

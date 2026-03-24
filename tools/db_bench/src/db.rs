@@ -25,21 +25,8 @@ pub fn prefill_sequential(keyspace: &Keyspace, config: &BenchConfig) -> fjall::R
 /// produce distinct keys.
 #[inline]
 pub fn make_sequential_key(index: u64, key_size: usize) -> Vec<u8> {
-    assert!(key_size > 0, "key_size must be > 0");
-    let be_bytes = index.to_be_bytes();
-    let mut key = Vec::with_capacity(key_size);
-
-    if key_size >= 8 {
-        key.extend_from_slice(&be_bytes);
-        key.resize(key_size, 0);
-    } else {
-        debug_assert!(
-            index < (1u64 << (key_size * 8)),
-            "index {index} exceeds unique key space for key_size {key_size}"
-        );
-        key.extend_from_slice(&be_bytes[8 - key_size..]);
-    }
-
+    let mut key = vec![0u8; key_size];
+    fill_sequential_key(&mut key, index);
     key
 }
 
