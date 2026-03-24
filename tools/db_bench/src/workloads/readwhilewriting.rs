@@ -23,7 +23,8 @@ impl Workload for ReadWhileWriting {
         // Minimum 1 reader + 1 writer = 2 threads.
         let reader_count = config.threads.max(1);
         let max_readers = usize::try_from(config.num.max(1)).unwrap_or(usize::MAX);
-        let reader_count = reader_count.min(max_readers);
+        // Cap so reader_count + 1 (writer) cannot overflow usize.
+        let reader_count = reader_count.min(max_readers).min(usize::MAX - 1);
         let total_threads = reader_count + 1;
 
         let base_ops = config.num / reader_count as u64;

@@ -18,9 +18,11 @@ impl Workload for MultiKeyspace {
         reporter: &mut Reporter,
     ) -> fjall::Result<()> {
         if config.keyspaces == 0 {
-            return Err(fjall::Error::Io(std::io::Error::other(
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
                 "multi_keyspace: --keyspaces must be > 0",
-            )));
+            )
+            .into());
         }
 
         // Own tmpdir: needs multiple keyspaces on a fresh database, incompatible

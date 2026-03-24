@@ -120,6 +120,11 @@ fn main() {
         std::process::exit(1);
     }
 
+    if cli.threads == 0 {
+        eprintln!("Error: --threads must be >= 1");
+        std::process::exit(1);
+    }
+
     if cli.json && (cli.benchmarks.contains(',') || cli.benchmarks == "all") {
         eprintln!("Error: --json does not support multiple benchmarks; use --github_json");
         std::process::exit(1);
