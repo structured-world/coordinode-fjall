@@ -1,30 +1,63 @@
 # Changelog
 
-> **Maintained fork** of [fjall-rs/fjall](https://github.com/fjall-rs/fjall) by [Structured World Foundation](https://sw.foundation) for the CoordiNode database engine.
-> Fork epoch starts at **v4.0.0** — upstream tags use no prefix (`3.1.1`), fork tags use `v`-prefix (`v4.0.0`).
+> **Maintained fork:** [structured-world/coordinode-fjall](https://github.com/structured-world/coordinode-fjall)
+> of [fjall-rs/fjall](https://github.com/fjall-rs/fjall) by [Structured World Foundation](https://sw.foundation).
+> Published on [crates.io](https://crates.io/crates/coordinode-fjall).
+> Fork tags use `v`-prefix (`v4.0.0`); upstream uses bare tags (`3.1.1`).
 
-## 4.0.0
+## [Unreleased]
 
-Fork epoch release. Aligned with lsm-tree V4 disk format (based on pre-4.0.0 git revision; see Cargo.toml for exact commit).
+## [4.0.0] — Fork Epoch (2026-03-23)
 
-- [feat] Custom sequence number generators (`SequenceNumberGenerator` trait)
-- [feat] Snapshot (non-serializable) reads in `OptimisticTxDatabase`
-- [perf] Optimized journal encoding for single-item writes (zero-alloc path)
-- [perf] `HashingWriter` for zero-alloc checksum verification in journal
-- [fix] Deadlock in `DatabaseInner::drop` under write pressure
-- [fix] Flush starvation under sustained write pressure
-- [fix] Worker thread counter underflow race on early exit
-- [fix] Journal checksum verified on raw bytes, not re-serialized data
-- [fix] Journal underflow guard before payload offset subtraction
-- [fix] Ingested data invisible after reopen
-- [fix] Worker flush recovery limited to worker #0 to avoid channel flooding
-- [refactor] Journal batch reader reuses `HashingWriter`, `HashingSink` for checksum
-- [refactor] Table-driven assertions in ingest reopen tests
-- [refactor] Transaction helpers: `mark_key_read`, bind keyspace once in `for_update`
-- [ci] CoordiNode CI with multi-OS matrix, Copilot review, upstream monitor
-- [ci] Automated changelog and releases via release-plz
-- [ci] Dependabot for cargo and actions dependencies
-- [deps] Bumped lz4_flex from 0.11 to 0.13
+First release of `coordinode-fjall` — maintained fork of [fjall-rs/fjall](https://github.com/fjall-rs/fjall) v3.1.1.
+Published to [crates.io](https://crates.io/crates/coordinode-fjall). All changes since upstream v3.1.1.
+
+### Added
+
+- Merge operator API for commutative LSM operations (#34)
+- Online backup via checkpointing (#31)
+- Snapshot (non-serializable) reads in OptimisticTxDatabase (#22)
+- JournalWriter trait for pluggable WAL (#28)
+- Custom sequence number generators (#4)
+- Switch to coordinode-lsm-tree v4.0 from crates.io (package alias, zero code changes)
+- Zstd + encryption feature passthrough to lsm-tree
+
+### Fixed
+
+- Prevent deadlock in DatabaseInner::drop under write pressure (#1)
+- Ingested data invisible after reopen (#2)
+- Flush starvation under sustained write pressure
+- Journal checksum verified on raw bytes, not re-serialized data (#21)
+- Worker thread counter underflow race on early exit
+- Resolve 50 clippy errors (indexing_slicing, unwrap_used, expect_used) (#36)
+- Journal underflow guard before payload offset subtraction
+- Worker flush recovery limited to worker #0 to avoid channel flooding
+- Adapt to CompactionResult return type (lsm-tree #103)
+- 30+ additional correctness and safety fixes
+
+### Performance
+
+- Write group commit pipeline for concurrent writers (#32)
+- Optimized journal encoding for single-item writes (#3)
+- HashingWriter for zero-alloc checksum verification
+- Write SingleItem directly from borrowed slices
+
+### Refactored
+
+- Journal batch reader reuses HashingWriter, HashingSink for checksum
+- Extract JournalWriter trait for Raft WAL integration
+- Table-driven assertions in ingest reopen tests
+- Transaction helpers: mark_key_read, bind keyspace once in for_update
+- Tighten visibility and use #[expect] with reasons on all suppressions
+- 15+ additional cleanup refactors
+
+### Testing
+
+- Benchmark infrastructure and Hermitage SSI test suite (#23)
+- Regression test for ingested data invisible after reopen (#2)
+- Snapshot and serializable read isolation verification
+- SingleItem error recovery path coverage
+- Doc test fix: replace todo!() with None (#25)
 
 ## 3.1.0
 

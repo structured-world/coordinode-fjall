@@ -1,4 +1,6 @@
 [workspace]
+# Disable cargo-semver-checks — we control versioning manually for this fork.
+semver_check = false
 # Create GitHub releases with changelog
 git_release_enable = true
 # Use conventional commits for changelog
@@ -7,12 +9,14 @@ changelog_update = true
 git_tag_name = "v{{ version }}"
 
 [changelog]
-# Keep changelog focused on meaningful changes
+# Skip: chore, ci, style, build, Merge (no user-visible impact)
+# Keep: feat, fix, perf, refactor, test, docs (user-visible)
 commit_parsers = [
+    { message = "^chore", skip = true },
     { message = "^ci", skip = true },
     { message = "^style", skip = true },
-    { message = "^chore\\(deps\\)", skip = true },
-    { message = "^chore\\(sync\\)", skip = true },
+    { message = "^build", skip = true },
+    { message = "^Merge", skip = true },
     { message = "^docs\\(ci\\)", skip = true },
     { message = "^docs\\(copilot\\)", skip = true },
     { message = "^docs", group = "Documentation" },
