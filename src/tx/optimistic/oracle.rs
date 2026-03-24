@@ -97,7 +97,6 @@ mod tests {
 
     #[expect(clippy::unwrap_used)]
     #[test]
-    #[ignore = "issue: #47; owner: @polaz; re-enable when: #47 is closed and this test passes locally"]
     fn oracle_committed_txns_does_not_leak() -> crate::Result<()> {
         let tmpdir = tempfile::tempdir()?;
         let db = OptimisticTxDatabase::builder(tmpdir.path()).open()?;
