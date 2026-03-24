@@ -78,10 +78,11 @@ impl Workload for ReadWhileWriting {
                 reporter.merge(&local_reporter);
             }
 
-            reporter.stop();
-
             #[expect(clippy::expect_used, reason = "writer panic is unrecoverable")]
             writer_handle.join().expect("writer thread panicked");
+
+            // Stop after writer joined so elapsed covers the full concurrent window.
+            reporter.stop();
 
             Ok(())
         });
