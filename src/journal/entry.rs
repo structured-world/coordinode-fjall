@@ -143,6 +143,8 @@ pub(super) fn serialize_item_payload<W: Write>(
             let compressed = zstd::bulk::compress(value, level)?;
             std::borrow::Cow::Owned(compressed)
         }
+
+        _ => std::borrow::Cow::Borrowed(value),
     };
 
     // NOTE: Truncation is okay and actually needed
@@ -321,6 +323,18 @@ fn decode_item_payload<R: Read>(
                 })?;
 
             Slice::from(decompressed)
+        }
+
+        _ =>
+        {
+            #[cfg_attr(
+                target_pointer_width = "16",
+                expect(
+                    clippy::cast_possible_truncation,
+                    reason = "u32 → usize may truncate on 16-bit usize targets"
+                )
+            )]
+            Slice::from_reader(reader, on_disk_value_len as usize)?
         }
     };
 

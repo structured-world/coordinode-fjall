@@ -1,4 +1,5 @@
-// Copyright (c) 2024-present, fjall-rs
+// Copyright (c) 2024-present, Structured World Foundation (sw.foundation)
+// Portions copyright (c) 2023-present, fjall-rs contributors
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
@@ -69,8 +70,8 @@
 //! # Ok::<_, fjall::Error>(())
 //! ```
 
-#![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/fjall/main/logo.png")]
-#![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/fjall/main/logo.png")]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png")]
+#![doc(html_favicon_url = "https://raw.githubusercontent.com/structured-world/coordinode-fjall/main/kawaii.png")]
 #![deny(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
